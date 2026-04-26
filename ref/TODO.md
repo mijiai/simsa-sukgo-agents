@@ -16,8 +16,7 @@ Claude.ai
        └─ Agent 4 : 사후관리 모니터링 Tools (monitor_*)
             │
             ├─ Azure Blob Storage    (문서·보고서 파일)
-            ├─ Azure Table Storage   (모니터링 대상·스냅샷·알림 이력·스케줄러 상태)
-            ├─ Azure SQL / CosmosDB  (재무 정형 데이터·심사 이력)
+            ├─ Azure Table Storage   (Job 생명주기·재무 정형 데이터·기업 마스터·모니터링·스케줄러)
             └─ Azure AI Search       (벡터 DB — 유사 사례 검색)
 ```
 
@@ -29,7 +28,7 @@ Claude.ai
   ```
   /agents        # Agent별 Tool 구현
   /tools         # 공통 유틸 (API 클라이언트, 스토리지 헬퍼)
-  /storage       # Azure Storage 연동 모듈 (Blob / Table / SQL / AI Search)
+  /storage       # Azure Storage 연동 모듈 (Blob / Table / AI Search)
   /prompts       # 시스템 프롬프트 · Few-shot 템플릿
   /scheduler     # APScheduler 배치 Job
   /tests         # 단위 · 통합 테스트
@@ -42,14 +41,13 @@ Claude.ai
 - [ ] 0-2. `pyproject.toml` / `requirements.txt` 작성 및 의존성 버전 고정
   - 핵심 패키지 : `fastmcp`, `httpx`, `apscheduler`,
     `azure-storage-blob`, `azure-data-tables`, `azure-search-documents`,
-    `sqlalchemy[asyncio]`, `pydantic`, `google-auth`, `google-api-python-client`
+    `pydantic`, `pydantic-settings`, `structlog`,
+    `google-auth`, `google-api-python-client`
 - [ ] 0-3. `.env.example` 스키마 정의
   ```
   # Azure Storage
   AZURE_STORAGE_CONNECTION_STRING=
   AZURE_STORAGE_BLOB_CONTAINER=
-  # Azure SQL / CosmosDB
-  AZURE_DB_URL=
   # Azure AI Search
   AZURE_SEARCH_ENDPOINT=
   AZURE_SEARCH_API_KEY=
@@ -63,6 +61,9 @@ Claude.ai
   # MCP 서버
   MCP_HOST=0.0.0.0
   MCP_PORT=8000
+  # 로깅
+  LOG_LEVEL=INFO
+  LOG_FORMAT=json
   ```
 - [ ] 0-4. `config.py` 중앙 설정 모듈 작성 (환경변수 로드, Azure 클라이언트 싱글톤)
 - [ ] 0-5. 로깅 설정 (`structlog` JSON 포맷) — Azure Monitor / Application Insights 연동 고려
@@ -75,7 +76,7 @@ Claude.ai
 - [ ] 0-9. 로컬 Docker 기동 후 Claude.ai MCP SSE 연결 동작 확인 (ngrok 터널 활용)
 - [ ] 0-10. **Job 생성 + 파일 업로드 초기화 Tool** 구현 (`create_analysis_job`)
   - 사용자가 분석 버튼을 누를 때 가장 먼저 호출되는 Tool
-  - `AnalysisJobs` Table INSERT (status=pending), `analysis_jobs_ref` SQL INSERT
+  - `AnalysisJobs` Table INSERT (status=pending), `AnalysisJobsRef` Table INSERT (PK=company_id)
   - 첨부 파일 → `jobs/{job_id}/input/{filename}` Blob 업로드
   - 커스텀 프롬프트 → `jobs/{job_id}/input/prompt.txt` Blob 저장
   - `AgentStatus` 테이블에 collect / analyze / report 3개 행 초기화 (status=pending)
@@ -87,22 +88,26 @@ Claude.ai
 
 > 기업명 입력 → 내부 DB(Azure Storage) · Naver News API · 소송자료 API 병렬 호출 → 원시 데이터 반환
 
-### 1-1. Azure Storage 기반 내부 DB 연동
+### 1-1. Azure Storage 모듈 구현
 
-- [ ] 1-1-1. **Azure SQL / CosmosDB** 연결 모듈 작성 (SQLAlchemy async 또는 CosmosDB SDK)
-  - 커넥션 풀 설정, Azure 재시도 정책 (`azure-core` RetryPolicy 활용)
-- [ ] 1-1-2. 기업 식별자 조회 구현 (법인번호 / 사업자번호 매핑 테이블)
-- [ ] 1-1-3. 재무제표 원시 데이터 조회 구현 (연도별 BS · PL · CF)
-- [ ] 1-1-4. 내부 심사 이력 조회 구현 (기존 여신 현황, 연체 이력)
-- [ ] 1-1-5. **Azure Table Storage** 연결 모듈 작성 (`/storage/table_store.py`, `azure-data-tables` 비동기 클라이언트)
-  - `AnalysisJobs` CRUD 구현 (INSERT · GET · UPDATE status)
-  - `AgentStatus` CRUD 구현 (INSERT pending · UPDATE running/done/failed)
-  - PartitionKey / RowKey 설계 원칙 정의
-- [ ] 1-1-6. **Azure Blob Storage** 연결 모듈 작성 (`azure-storage-blob` 비동기 클라이언트)
+> Azure SQL / CosmosDB는 사용하지 않는다. 정형 데이터도 모두 Table Storage로 통합.
+
+- [ ] 1-1-1. **Azure Blob Storage** 연결 모듈 작성 (`/src/storage/blob_store.py`, `azure-storage-blob.aio`)
   - 파일 업로드 / 다운로드 함수 구현
-  - SAS 토큰 생성 함수 구현 (임시 접근 URL 반환용)
-- [ ] 1-1-7. DB 조회 결과 → 표준 Pydantic 스키마 변환 레이어 작성
-- [ ] 1-1-8. 더미/샘플 데이터셋 Azure Storage에 적재 스크립트 작성 (실 고객정보 미사용)
+  - SAS 토큰 생성 함수 (User Delegation Key 우선, fallback Account Key)
+  - Container 자동 생성 (idempotent)
+- [ ] 1-1-2. **Azure Table Storage** 연결 모듈 작성 (`/src/storage/table_store.py`, `azure-data-tables.aio`)
+  - 테이블별 typed repository 패턴
+  - 운영 테이블 : `AnalysisJobs`, `AgentStatus`
+  - 정형 테이블 : `Companies`, `FinancialRaw`, `FinancialMetrics`, `AnalysisJobsRef`
+  - 모니터링 테이블 : `MonitoringTargets`, `MonitoringSnapshots`, `AlertHistory`
+  - 인프라 테이블 : `SchedulerState`
+  - 테이블 자동 생성 (idempotent), PartitionKey / RowKey 규칙은 `/ref/DB_DESIGN.md` §2 준수
+- [ ] 1-1-3. Pydantic 스키마 정의 (`schemas.py`) — 각 테이블 행 ↔ 모델 매핑
+- [ ] 1-1-4. 더미/샘플 데이터셋 적재 스크립트 (`scripts/seed_dummy_data.py`)
+  - `Companies` 더미 기업 N개
+  - `FinancialRaw` 더미 재무 행 (실 고객정보 미사용)
+  - 로컬 검증용
 
 ### 1-2. Naver News API 연동
 
@@ -125,9 +130,9 @@ Claude.ai
   - `job_id`는 `create_analysis_job` 반환값을 그대로 수신
 - [ ] 1-4-2. Agent 시작 시 `AgentStatus[collect]` status=running, `AnalysisJobs` status=collecting 업데이트
 - [ ] 1-4-3. `jobs/{job_id}/input/*` Blob에서 업로드 파일 다운로드 및 파싱 (PDF/DOCX/XLSX OCR 포함)
-- [ ] 1-4-4. Azure DB · Naver News · 소송자료 병렬 호출 (`asyncio.gather`) 구현
-- [ ] 1-4-5. `companies` 테이블 UPSERT (기업 마스터 등록/갱신)
-- [ ] 1-4-6. 수집 결과 → `financial_raw` SQL INSERT (연도별 재무 수치 행)
+- [ ] 1-4-4. Companies Table 조회 · Naver News · 소송자료 병렬 호출 (`asyncio.gather`) 구현
+- [ ] 1-4-5. `Companies` Table UPSERT (기업 마스터 등록/갱신)
+- [ ] 1-4-6. 수집 결과 → `FinancialRaw` Table INSERT (PartitionKey=job_id, 연도별 행)
 - [ ] 1-4-7. 수집 결과 전체 → `jobs/{job_id}/collect/raw.json` Blob PUT
 - [ ] 1-4-8. `AgentStatus[collect]` status=done, `output_blob_path` 기록
 - [ ] 1-4-9. 경량 응답 포맷 Pydantic 모델 정의 (job_id + 메타 요약만 반환)
@@ -163,13 +168,13 @@ Claude.ai
 ### 2-3. FastMCP Tool 등록 — 재무 분석
 
 - [ ] 2-3-1. `analyze_financials(job_id: str)` Tool 정의
-  - `job_id`만 수신, Blob(`jobs/{job_id}/collect/raw.json`)과 SQL(`financial_raw`)에서 직접 데이터 로드
+  - `job_id`만 수신, Blob(`jobs/{job_id}/collect/raw.json`)과 Table(`FinancialRaw` PK=job_id)에서 직접 데이터 로드
 - [ ] 2-3-2. Agent 시작 시 `AgentStatus[analyze]` status=running, `AnalysisJobs` status=analyzing 업데이트
-- [ ] 2-3-3. `financial_raw` SQL READ (job_id 조건) + Blob `raw.json` GET → 분석 입력 구성
+- [ ] 2-3-3. `FinancialRaw` Table query (PK=job_id) + Blob `raw.json` GET → 분석 입력 구성
 - [ ] 2-3-4. 재무 지표 계산 및 업종 벤치마크 비교 로직 구현
 - [ ] 2-3-5. Azure AI Search 유사 사례 검색 결과 컨텍스트 주입
 - [ ] 2-3-6. 분석 인사이트 생성 (Claude API 호출 또는 Tool 내 로직)
-- [ ] 2-3-7. 분석 결과 → `financial_metrics` SQL INSERT (계산된 지표 행)
+- [ ] 2-3-7. 분석 결과 → `FinancialMetrics` Table INSERT (PK=job_id, RK=base_year)
 - [ ] 2-3-8. 분석 결과 전체 → `jobs/{job_id}/analyze/result.json` Blob PUT
 - [ ] 2-3-9. `AgentStatus[analyze]` status=done, `output_blob_path` 기록
 - [ ] 2-3-10. 경량 응답 포맷 Pydantic 모델 정의 (job_id + risk_level + 핵심 요인만 반환)
@@ -178,7 +183,7 @@ Claude.ai
     "risk_level": "주의", "risk_score": 62.4,
     "key_risk_factors": ["소송 2건 진행 중", "영업이익 YoY -30%"] }
   ```
-- [ ] 2-3-11. Tool 단위 테스트 작성 (Azure AI Search mock + SQL mock 포함)
+- [ ] 2-3-11. Tool 단위 테스트 작성 (Azure AI Search mock + Table mock 포함)
 
 ---
 
@@ -203,7 +208,7 @@ Claude.ai
 ### 3-3. FastMCP Tool 등록 — 보고서 작성
 
 - [ ] 3-3-1. `report_generate(job_id: str)` Tool 정의
-  - `job_id`만 수신, Blob(`collect/raw.json`, `analyze/result.json`)과 SQL(`financial_metrics`)에서 직접 로드
+  - `job_id`만 수신, Blob(`collect/raw.json`, `analyze/result.json`)과 Table(`FinancialMetrics` PK=job_id)에서 직접 로드
 - [ ] 3-3-2. 섹션별 순차 생성 파이프라인 구현
 - [ ] 3-3-3. Azure AI Search 유사 보고서 컨텍스트 주입
 - [ ] 3-3-4. Markdown 최종 보고서 조립 후 **Azure Blob `jobs/{job_id}/report/report.md` PUT**
@@ -211,14 +216,14 @@ Claude.ai
 - [ ] 3-3-6. (옵션) `python-docx` 활용 DOCX 변환 후 `jobs/{job_id}/report/report.docx` Blob 추가 저장
 - [ ] 3-3-7. `AgentStatus[report]` status=done, `output_blob_path` 기록
 - [ ] 3-3-8. `AnalysisJobs` status=done, `report_blob_path` 기록
-- [ ] 3-3-9. `analysis_jobs_ref` SQL UPDATE (risk_level, finished_at 갱신)
+- [ ] 3-3-9. `AnalysisJobsRef` Table UPDATE (PK=company_id, RK=job_id, risk_level/finished_at 갱신)
 - [ ] 3-3-10. Blob SAS URL 생성 후 경량 응답 포맷으로 반환
   ```python
   { "job_id": "...", "status": "done",
     "report_url": "https://.../report.md?sas=...",
     "docx_url":   "https://.../report.docx?sas=..." }
   ```
-- [ ] 3-3-11. Tool 단위 테스트 작성 (Blob mock + SQL mock 포함)
+- [ ] 3-3-11. Tool 단위 테스트 작성 (Blob mock + Table mock 포함)
 
 ---
 
@@ -385,20 +390,22 @@ Claude.ai
     monitoring/{company_id}/{YYYYMMDD}/  ← 모니터링 스냅샷
     credentials/                ← Gmail OAuth JSON
   ```
-- [ ] 7-1-3. **Azure Table Storage** 테이블 생성
-  - `AnalysisJobs` : Job 생명주기 추적 (PartitionKey=`"job"`, RowKey=job_id)
-  - `AgentStatus` : Agent별 실행 상태 및 에러 추적 (PartitionKey=job_id, RowKey=agent명)
-  - `MonitoringTargets` : 모니터링 등록 기업 목록
-  - `MonitoringSnapshots` : 3개월 주기 위험 상태 스냅샷
-  - `AlertHistory` : Gmail 알림 발송 이력
-  - `SchedulerState` : 배치 스케줄러 마지막 실행 시각
-- [ ] 7-1-4. **Azure SQL Database 또는 CosmosDB** 프로비저닝
-  - 테이블 4개 스키마 마이그레이션 (`alembic` 또는 초기화 스크립트)
-    - `companies` : 기업 마스터 (company_id, company_name, industry_code 등)
-    - `financial_raw` : Agent 1 수집 재무 원시 수치 (job_id · 연도별 BS·PL·CF)
-    - `financial_metrics` : Agent 2 계산 재무 지표 (부채비율·이자보상배율·위험등급 등)
-    - `analysis_jobs_ref` : Job 집계·이력 조회용 (Table Storage와 이중화)
-- [ ] 7-1-5. **Azure AI Search** 리소스 생성 및 인덱스 프로비저닝
+- [ ] 7-1-3. **Azure Table Storage** 테이블 생성 (총 10개 — `azure-data-tables`로 코드에서 자동 생성 가능)
+  - 운영 :
+    - `AnalysisJobs` : Job 생명주기 추적 (PartitionKey=`"job"`, RowKey=job_id)
+    - `AgentStatus` : Agent별 실행 상태 및 에러 추적 (PartitionKey=job_id, RowKey=agent명)
+  - 정형 :
+    - `Companies` : 기업 마스터 (PartitionKey=`"company"`, RowKey=company_id)
+    - `FinancialRaw` : Agent 1 수집 재무 원시 (PartitionKey=job_id, RowKey=`{year}-{type}`)
+    - `FinancialMetrics` : Agent 2 계산 재무 지표 (PartitionKey=job_id, RowKey=base_year)
+    - `AnalysisJobsRef` : 기업별 Job 이력 인덱스 (PartitionKey=company_id, RowKey=job_id)
+  - 모니터링 :
+    - `MonitoringTargets` : 모니터링 등록 기업 목록
+    - `MonitoringSnapshots` : 3개월 주기 위험 상태 스냅샷
+    - `AlertHistory` : Gmail 알림 발송 이력
+  - 인프라 :
+    - `SchedulerState` : 배치 스케줄러 마지막 실행 시각
+- [ ] 7-1-4. **Azure AI Search** 리소스 생성 및 인덱스 프로비저닝
   - 인덱스 : `financial-cases`, `report-templates`
   - 더미 데이터 초기 적재 스크립트 실행 확인
 
@@ -435,7 +442,7 @@ Claude.ai
 - [ ] 7-4-2. 경고 규칙 설정 : 컨테이너 재시작 횟수 임계치 초과 시 이메일 알림
 - [ ] 7-4-3. Azure Storage 비용 모니터링 및 Blob 수명 주기 정책 설정
   - 보고서 Blob : 1년 경과 시 Cool tier 이동
-- [ ] 7-4-4. Azure SQL / CosmosDB 쿼리 성능 모니터링 설정
+- [ ] 7-4-4. Azure Table Storage 쿼리 성능 · Throttling 모니터링 설정
 
 ---
 
