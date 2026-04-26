@@ -5,7 +5,6 @@ description = "심사숙고 — 기업 심사 리포트 Multi-Agent MCP 서버"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "aiosqlite>=0.22.1",
     "apscheduler>=3.11.2",
     "azure-data-tables>=12.7.0",
     "azure-search-documents>=11.6.0",
@@ -17,7 +16,6 @@ dependencies = [
     "pydantic>=2.13.3",
     "pydantic-settings>=2.14.0",
     "python-dotenv>=1.2.2",
-    "sqlalchemy[asyncio]>=2.0.49",
     "structlog>=25.5.0",
 ]
 

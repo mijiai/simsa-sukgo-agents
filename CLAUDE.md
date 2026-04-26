@@ -70,8 +70,7 @@ simsa-sookgo/
 │   │       └── scheduler.py         ← APScheduler 배치 Job
 │   ├── storage/
 │   │   ├── blob_store.py            ← Azure Blob 업로드/다운로드/SAS URL
-│   │   ├── table_store.py           ← Azure Table CRUD (AnalysisJobs, AgentStatus 등)
-│   │   └── sql_store.py             ← SQLAlchemy async (financial_raw, financial_metrics 등)
+│   │   └── table_store.py           ← Azure Table CRUD (10개 테이블 — Job/정형/모니터링/인프라)
 │   └── common/
 │       ├── exceptions.py            ← 공통 예외 클래스
 │       ├── response.py              ← 공통 응답 포맷
@@ -99,8 +98,8 @@ Step 0. 프로젝트 초기 세팅
   → FastMCP 서버 뼈대, config, logging, /health 엔드포인트, docker-compose
 
 Step 1. Storage 모듈 구현
-  → blob_store.py / table_store.py / sql_store.py
-  → Azure Table 테이블 6개, SQL 테이블 4개, Blob 컨테이너 구조
+  → blob_store.py / table_store.py
+  → Azure Table 테이블 10개, Blob 컨테이너 구조 (Azure SQL 미사용)
   → (상세 스키마는 /ref/DB_DESIGN.md 참조)
 
 Step 2. create_analysis_job Tool
@@ -133,9 +132,9 @@ Step 7. 통합 및 배포
 
 ```
 create_analysis_job  →  job_id 반환
-  └─► collect_company_data(job_id)   → Blob, SQL 쓰기 → 경량 응답 반환
-        └─► analyze_financials(job_id) → Blob, SQL 읽기·쓰기 → 경량 응답 반환
-              └─► report_generate(job_id) → Blob, SQL 읽기 → SAS URL 반환
+  └─► collect_company_data(job_id)   → Blob, Table 쓰기 → 경량 응답 반환
+        └─► analyze_financials(job_id) → Blob, Table 읽기·쓰기 → 경량 응답 반환
+              └─► report_generate(job_id) → Blob, Table 읽기 → SAS URL 반환
 ```
 
 각 Tool의 경량 응답 형태:
@@ -303,9 +302,6 @@ chore: ruff 설정 추가
 AZURE_STORAGE_CONNECTION_STRING=
 AZURE_STORAGE_BLOB_CONTAINER=simsasukgo
 
-# Azure SQL
-AZURE_DB_URL=
-
 # Azure AI Search
 AZURE_SEARCH_ENDPOINT=
 AZURE_SEARCH_API_KEY=
@@ -322,6 +318,10 @@ GMAIL_CREDENTIALS_BLOB_PATH=credentials/gmail_oauth.json
 # MCP 서버
 MCP_HOST=0.0.0.0
 MCP_PORT=8000
+
+# 로깅
+LOG_LEVEL=INFO
+LOG_FORMAT=json
 ```
 
 ---
