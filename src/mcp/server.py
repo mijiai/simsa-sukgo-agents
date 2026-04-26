@@ -6,6 +6,9 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from src.config.logging import get_logger
+from src.config.settings import get_settings
+from src.mcp.job_tools import register_job_tools
+from src.storage.factory import close_storage, get_blob_store, get_table_store
 
 logger = get_logger(__name__)
 
@@ -25,15 +28,22 @@ SERVER_INSTRUCTIONS = """\
 
 
 @asynccontextmanager
-async def lifespan(server: FastMCP) -> AsyncIterator[None]:
+async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
+    settings = get_settings()
     logger.info("mcp_server.startup")
-    # TODO(step-1): Azure Storage 연결 확인 (blob/table/sql ping)
+    if settings.azure_storage_connection_string:
+        get_blob_store()
+        get_table_store()
+        logger.info("storage.singletons.initialized")
+    else:
+        logger.warning("storage.skipped_no_connection_string")
     # TODO(step-1): AgentStatus 테이블에서 status=running 잔존 Job 감지 → 재개
     # TODO(step-4): APScheduler 시작 등록
     try:
         yield
     finally:
         # TODO(step-4): APScheduler graceful shutdown
+        await close_storage()
         logger.info("mcp_server.shutdown")
 
 
@@ -48,5 +58,7 @@ def create_mcp_server() -> FastMCP:
     @mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
     async def health(_request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok"})
+
+    register_job_tools(mcp)
 
     return mcp
