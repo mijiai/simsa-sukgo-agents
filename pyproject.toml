@@ -5,6 +5,7 @@ description = "심사숙고 — 기업 심사 리포트 Multi-Agent MCP 서버"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "aiohttp>=3.13.5",
     "apscheduler>=3.11.2",
     "azure-data-tables>=12.7.0",
     "azure-search-documents>=11.6.0",
