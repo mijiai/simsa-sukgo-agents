@@ -243,6 +243,15 @@ class CompaniesRepo(_RepoBase):
     async def get(self, company_id: str) -> Company:
         return _entity_to_model(await self._get(self.PARTITION, company_id), Company)
 
+    async def find_by_name(self, company_name: str) -> Company | None:
+        escaped = company_name.replace("'", "''")
+        results = await self._query(
+            f"PartitionKey eq '{self.PARTITION}' and company_name eq '{escaped}'"
+        )
+        if not results:
+            return None
+        return _entity_to_model(results[0], Company)
+
 
 class FinancialRawRepo(_RepoBase):
     @staticmethod

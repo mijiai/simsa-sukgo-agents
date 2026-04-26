@@ -210,6 +210,44 @@ async def test_companies_repo_upsert_uses_constant_partition() -> None:
     assert sent["RowKey"] == "c1"
 
 
+async def test_companies_repo_find_by_name_returns_match() -> None:
+    client = _mock_table_client()
+    entity = {
+        "PartitionKey": "company",
+        "RowKey": "c1",
+        "company_id": "c1",
+        "company_name": "ACME",
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    client.query_entities = MagicMock(side_effect=lambda *a, **k: _async_iter([entity]))
+    repo = CompaniesRepo(client, "Companies")
+
+    found = await repo.find_by_name("ACME")
+    assert found is not None
+    assert found.company_id == "c1"
+    sent_filter = client.query_entities.call_args.args[0]
+    assert "company_name eq 'ACME'" in sent_filter
+
+
+async def test_companies_repo_find_by_name_returns_none_when_missing() -> None:
+    client = _mock_table_client()
+    client.query_entities = MagicMock(side_effect=lambda *a, **k: _async_iter([]))
+    repo = CompaniesRepo(client, "Companies")
+
+    assert await repo.find_by_name("Unknown") is None
+
+
+async def test_companies_repo_find_by_name_escapes_single_quote() -> None:
+    client = _mock_table_client()
+    client.query_entities = MagicMock(side_effect=lambda *a, **k: _async_iter([]))
+    repo = CompaniesRepo(client, "Companies")
+
+    await repo.find_by_name("O'Hara")
+    sent_filter = client.query_entities.call_args.args[0]
+    assert "O''Hara" in sent_filter
+
+
 async def test_financial_raw_repo_row_key_format() -> None:
     client = _mock_table_client()
     repo = FinancialRawRepo(client, "FinancialRaw")
