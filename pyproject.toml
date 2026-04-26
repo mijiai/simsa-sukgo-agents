@@ -1,0 +1,57 @@
+[project]
+name = "simsa-sukgo"
+version = "0.1.0"
+description = "심사숙고 — 기업 심사 리포트 Multi-Agent MCP 서버"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "apscheduler>=3.11.2",
+    "azure-data-tables>=12.7.0",
+    "azure-search-documents>=11.6.0",
+    "azure-storage-blob>=12.28.0",
+    "fastmcp>=3.2.4",
+    "google-api-python-client>=2.194.0",
+    "google-auth>=2.49.2",
+    "httpx>=0.28.1",
+    "pydantic>=2.13.3",
+    "pydantic-settings>=2.14.0",
+    "python-dotenv>=1.2.2",
+    "sqlalchemy[asyncio]>=2.0.49",
+    "structlog>=25.5.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "mypy>=1.20.2",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.15.12",
+]
