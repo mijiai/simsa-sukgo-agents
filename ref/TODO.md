@@ -24,7 +24,7 @@ Claude.ai
 
 ## 0. 프로젝트 초기 세팅
 
-- [ ] 0-1. 레포지토리 구조 설계
+- [x] 0-1. 레포지토리 구조 설계
   ```
   /agents        # Agent별 Tool 구현
   /tools         # 공통 유틸 (API 클라이언트, 스토리지 헬퍼)
@@ -38,12 +38,12 @@ Claude.ai
   main.py
   config.py
   ```
-- [ ] 0-2. `pyproject.toml` / `requirements.txt` 작성 및 의존성 버전 고정
+- [x] 0-2. `pyproject.toml` / `requirements.txt` 작성 및 의존성 버전 고정
   - 핵심 패키지 : `fastmcp`, `httpx`, `apscheduler`,
     `azure-storage-blob`, `azure-data-tables`, `azure-search-documents`,
     `pydantic`, `pydantic-settings`, `structlog`,
     `google-auth`, `google-api-python-client`
-- [ ] 0-3. `.env.example` 스키마 정의
+- [x] 0-3. `.env.example` 스키마 정의
   ```
   # Azure Storage
   AZURE_STORAGE_CONNECTION_STRING=
@@ -65,16 +65,16 @@ Claude.ai
   LOG_LEVEL=INFO
   LOG_FORMAT=json
   ```
-- [ ] 0-4. `config.py` 중앙 설정 모듈 작성 (환경변수 로드, Azure 클라이언트 싱글톤)
-- [ ] 0-5. 로깅 설정 (`structlog` JSON 포맷) — Azure Monitor / Application Insights 연동 고려
-- [ ] 0-6. FastMCP 서버 엔트리포인트 (`main.py`) 뼈대 작성
+- [x] 0-4. `config.py` 중앙 설정 모듈 작성 (환경변수 로드, Azure 클라이언트 싱글톤)
+- [x] 0-5. 로깅 설정 (`structlog` JSON 포맷) — Azure Monitor / Application Insights 연동 고려
+- [x] 0-6. FastMCP 서버 엔트리포인트 (`main.py`) 뼈대 작성
   - transport : **SSE** (`mcp.run(transport="sse", host=MCP_HOST, port=MCP_PORT)`)
   - `lifespan` 훅에 Azure Storage 연결 확인 · APScheduler 시작/종료 등록
   - `lifespan` 기동 시 `AgentStatus` 테이블에서 `status=running` 잔존 Job 감지 → 해당 Agent부터 자동 재개 (컨테이너 재시작 복구)
-- [ ] 0-7. `/health` 엔드포인트 추가 (Azure Container Apps 헬스체크용, `GET /health → 200 OK`)
-- [ ] 0-8. `docker-compose.yml` 로컬 개발 환경 구성 (`.env` 마운트, 포트 포워딩 8000:8000)
+- [x] 0-7. `/health` 엔드포인트 추가 (Azure Container Apps 헬스체크용, `GET /health → 200 OK`)
+- [x] 0-8. `docker-compose.yml` 로컬 개발 환경 구성 (`.env` 마운트, 포트 포워딩 8000:8000)
 - [ ] 0-9. 로컬 Docker 기동 후 Claude.ai MCP SSE 연결 동작 확인 (ngrok 터널 활용)
-- [ ] 0-10. **Job 생성 + 파일 업로드 초기화 Tool** 구현 (`create_analysis_job`)
+- [x] 0-10. **Job 생성 + 파일 업로드 초기화 Tool** 구현 (`create_analysis_job`)
   - 사용자가 분석 버튼을 누를 때 가장 먼저 호출되는 Tool
   - `AnalysisJobs` Table INSERT (status=pending), `AnalysisJobsRef` Table INSERT (PK=company_id)
   - 첨부 파일 → `jobs/{job_id}/input/{filename}` Blob 업로드
@@ -92,18 +92,18 @@ Claude.ai
 
 > Azure SQL / CosmosDB는 사용하지 않는다. 정형 데이터도 모두 Table Storage로 통합.
 
-- [ ] 1-1-1. **Azure Blob Storage** 연결 모듈 작성 (`/src/storage/blob_store.py`, `azure-storage-blob.aio`)
+- [x] 1-1-1. **Azure Blob Storage** 연결 모듈 작성 (`/src/storage/blob_store.py`, `azure-storage-blob.aio`)
   - 파일 업로드 / 다운로드 함수 구현
   - SAS 토큰 생성 함수 (User Delegation Key 우선, fallback Account Key)
   - Container 자동 생성 (idempotent)
-- [ ] 1-1-2. **Azure Table Storage** 연결 모듈 작성 (`/src/storage/table_store.py`, `azure-data-tables.aio`)
+- [x] 1-1-2. **Azure Table Storage** 연결 모듈 작성 (`/src/storage/table_store.py`, `azure-data-tables.aio`)
   - 테이블별 typed repository 패턴
   - 운영 테이블 : `AnalysisJobs`, `AgentStatus`
   - 정형 테이블 : `Companies`, `FinancialRaw`, `FinancialMetrics`, `AnalysisJobsRef`
   - 모니터링 테이블 : `MonitoringTargets`, `MonitoringSnapshots`, `AlertHistory`
   - 인프라 테이블 : `SchedulerState`
   - 테이블 자동 생성 (idempotent), PartitionKey / RowKey 규칙은 `/ref/DB_DESIGN.md` §2 준수
-- [ ] 1-1-3. Pydantic 스키마 정의 (`schemas.py`) — 각 테이블 행 ↔ 모델 매핑
+- [x] 1-1-3. Pydantic 스키마 정의 (`schemas.py`) — 각 테이블 행 ↔ 모델 매핑
 - [ ] 1-1-4. 더미/샘플 데이터셋 적재 스크립트 (`scripts/seed_dummy_data.py`)
   - `Companies` 더미 기업 N개
   - `FinancialRaw` 더미 재무 행 (실 고객정보 미사용)
@@ -378,9 +378,9 @@ Claude.ai
 
 ### 7-1. Azure Storage 리소스 구성
 
-- [ ] 7-1-1. **Azure Storage Account** 생성 (Azure Portal)
+- [x] 7-1-1. **Azure Storage Account** 생성 (Azure Portal)
   - 종류 : Standard LRS (개발) / ZRS (운영)
-- [ ] 7-1-2. **Blob 컨테이너** 생성 — 단일 컨테이너(`simsasukgo`) + prefix로 구분
+- [x] 7-1-2. **Blob 컨테이너** 생성 — 단일 컨테이너(`simsasukgo`) + prefix로 구분
   ```
   simsasukgo/
     jobs/{job_id}/input/        ← 사용자 업로드 파일 + prompt.txt
@@ -390,7 +390,7 @@ Claude.ai
     monitoring/{company_id}/{YYYYMMDD}/  ← 모니터링 스냅샷
     credentials/                ← Gmail OAuth JSON
   ```
-- [ ] 7-1-3. **Azure Table Storage** 테이블 생성 (총 10개 — `azure-data-tables`로 코드에서 자동 생성 가능)
+- [x] 7-1-3. **Azure Table Storage** 테이블 생성 (총 10개 — `azure-data-tables`로 코드에서 자동 생성 가능)
   - 운영 :
     - `AnalysisJobs` : Job 생명주기 추적 (PartitionKey=`"job"`, RowKey=job_id)
     - `AgentStatus` : Agent별 실행 상태 및 에러 추적 (PartitionKey=job_id, RowKey=agent명)
