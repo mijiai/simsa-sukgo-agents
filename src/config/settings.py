@@ -17,9 +17,6 @@ class Settings(BaseSettings):
     azure_storage_connection_string: str = Field(default="")
     azure_storage_blob_container: str = Field(default="simsasukgo")
 
-    # Azure SQL / CosmosDB
-    azure_db_url: str = Field(default="")
-
     # Azure AI Search
     azure_search_endpoint: str = Field(default="")
     azure_search_api_key: str = Field(default="")
