@@ -159,31 +159,33 @@ Claude.ai
 
 ### 2-2. 분석 지침(Prompt) 설계
 
-- [ ] 2-2-1. 재무 분석 시스템 프롬프트 작성 (`/prompts/financial_analysis.md`)
-- [ ] 2-2-2. 주요 재무 지표 자동 계산 로직 구현 (부채비율, 유동비율, 영업이익률, 이자보상배율 등)
-- [ ] 2-2-3. 정형 데이터 분석 프롬프트 (수치 비교 · 추이 서술 템플릿)
-- [ ] 2-2-4. 비정형 데이터 분석 프롬프트 (뉴스 · 소송 위험 신호 탐지 템플릿)
-- [ ] 2-2-5. 위험 등급 산출 기준 정의 (정상 / 주의 / 경고 / 위험)
+- [~] 2-2-1. ~~재무 분석 시스템 프롬프트 작성 (`/prompts/financial_analysis.md`)~~
+  → `src/agents/financial/prompts.py` 모듈 상수로 작성 (PoC 단순화). 별도 파일 분리는 후속.
+- [~] 2-2-2. ~~주요 재무 지표 자동 계산 로직 구현 (부채비율, 유동비율, 영업이익률, 이자보상배율 등)~~
+  → 1-1-4 더미 재무 데이터 보류로 입력 자체가 없음. 더미 적재 후 별도 PR.
+- [~] 2-2-3. ~~정형 데이터 분석 프롬프트 (수치 비교 · 추이 서술 템플릿)~~
+  → 2-2-2 와 동일 사유 보류. 현재 단일 SYSTEM_PROMPT 에 통합.
+- [x] 2-2-4. 비정형 데이터 분석 프롬프트 (뉴스 · 위험 신호 탐지) — `prompts.py` 단일 시스템 프롬프트로 작성
+- [x] 2-2-5. 위험 등급 산출 기준 정의 (LOW / MEDIUM / HIGH / CRITICAL + 0~100 점수, `RiskLevel` enum 활용)
 
 ### 2-3. FastMCP Tool 등록 — 재무 분석
 
-- [ ] 2-3-1. `analyze_financials(job_id: str)` Tool 정의
-  - `job_id`만 수신, Blob(`jobs/{job_id}/collect/raw.json`)과 Table(`FinancialRaw` PK=job_id)에서 직접 데이터 로드
-- [ ] 2-3-2. Agent 시작 시 `AgentStatus[analyze]` status=running, `AnalysisJobs` status=analyzing 업데이트
-- [ ] 2-3-3. `FinancialRaw` Table query (PK=job_id) + Blob `raw.json` GET → 분석 입력 구성
-- [ ] 2-3-4. 재무 지표 계산 및 업종 벤치마크 비교 로직 구현
-- [ ] 2-3-5. Azure AI Search 유사 사례 검색 결과 컨텍스트 주입
-- [ ] 2-3-6. 분석 인사이트 생성 (Claude API 호출 또는 Tool 내 로직)
-- [ ] 2-3-7. 분석 결과 → `FinancialMetrics` Table INSERT (PK=job_id, RK=base_year)
-- [ ] 2-3-8. 분석 결과 전체 → `jobs/{job_id}/analyze/result.json` Blob PUT
-- [ ] 2-3-9. `AgentStatus[analyze]` status=done, `output_blob_path` 기록
-- [ ] 2-3-10. 경량 응답 포맷 Pydantic 모델 정의 (job_id + risk_level + 핵심 요인만 반환)
-  ```python
-  { "job_id": "...", "status": "analyze_done",
-    "risk_level": "주의", "risk_score": 62.4,
-    "key_risk_factors": ["소송 2건 진행 중", "영업이익 YoY -30%"] }
-  ```
-- [ ] 2-3-11. Tool 단위 테스트 작성 (Azure AI Search mock + Table mock 포함)
+- [x] 2-3-1. `analyze_financials(job_id: str)` Tool 정의
+  - `job_id`만 수신, Blob(`jobs/{job_id}/collect/raw.json`) 에서 직접 데이터 로드
+- [x] 2-3-2. Agent 시작 시 `AgentStatus[analyze]` status=running, `AnalysisJobs` status=analyzing 업데이트
+- [~] 2-3-3. ~~`FinancialRaw` Table query (PK=job_id) + Blob `raw.json` GET → 분석 입력 구성~~
+  → 현재는 `raw.json` GET 만 수행. `FinancialRaw` query 는 1-1-4 더미 데이터 보류로 미수행.
+- [~] 2-3-4. ~~재무 지표 계산 및 업종 벤치마크 비교 로직 구현~~
+  → 2-2-2 와 동일 사유 보류 (재무 데이터 없음).
+- [~] 2-3-5. ~~Azure AI Search 유사 사례 검색 결과 컨텍스트 주입~~
+  → 2-1 (Azure AI Search 인덱스 구축) 미진행. 별도 PR.
+- [x] 2-3-6. 분석 인사이트 생성 (Claude API 호출, `claude-haiku-4-5-20251001` default)
+- [~] 2-3-7. ~~분석 결과 → `FinancialMetrics` Table INSERT (PK=job_id, RK=base_year)~~
+  → 재무 지표 계산이 보류라 INSERT 할 데이터가 없음. 더미 재무 데이터 + 지표 계산 후 별도 PR.
+- [x] 2-3-8. 분석 결과 전체 → `jobs/{job_id}/analyze/result.json` Blob PUT
+- [x] 2-3-9. `AgentStatus[analyze]` status=done, `output_blob_path` 기록
+- [x] 2-3-10. 경량 응답 포맷 Pydantic 모델 정의 (`AnalyzeResponse`: job_id, risk_level, risk_score, key_risk_factors, data_gaps, output_blob_path)
+- [x] 2-3-11. Tool 단위 테스트 작성 (Anthropic mock + Blob/Table mock, JSON 파싱·프롬프트 빌더 별도 테스트 포함)
 
 ---
 

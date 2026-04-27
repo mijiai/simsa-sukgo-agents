@@ -7,6 +7,8 @@ from starlette.responses import JSONResponse
 
 from src.agents.collector.factory import close_collector_clients, get_naver_news_client
 from src.agents.collector.tools import register_collector_tools
+from src.agents.financial.factory import close_anthropic_client, get_anthropic_client
+from src.agents.financial.tools import register_financial_tools
 from src.config.logging import get_logger
 from src.config.settings import get_settings
 from src.mcp.job_tools import register_job_tools
@@ -44,6 +46,11 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
         logger.info("naver.client.initialized")
     else:
         logger.warning("naver.skipped_no_credentials")
+    if settings.anthropic_api_key:
+        get_anthropic_client()
+        logger.info("anthropic.client.initialized", model=settings.anthropic_model)
+    else:
+        logger.warning("anthropic.skipped_no_api_key")
     # TODO(step-1): AgentStatus 테이블에서 status=running 잔존 Job 감지 → 재개
     # TODO(step-4): APScheduler 시작 등록
     try:
@@ -51,6 +58,7 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
     finally:
         # TODO(step-4): APScheduler graceful shutdown
         await close_collector_clients()
+        await close_anthropic_client()
         await close_storage()
         logger.info("mcp_server.shutdown")
 
@@ -69,5 +77,6 @@ def create_mcp_server() -> FastMCP:
 
     register_job_tools(mcp)
     register_collector_tools(mcp)
+    register_financial_tools(mcp)
 
     return mcp

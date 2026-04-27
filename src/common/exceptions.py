@@ -15,6 +15,11 @@ class NaverApiError(ExternalApiError):
         super().__init__("naver_news", message, status_code=status_code)
 
 
+class AnthropicApiError(ExternalApiError):
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__("anthropic", message, status_code=status_code)
+
+
 class StorageError(SimsaSukgoError):
     pass
 

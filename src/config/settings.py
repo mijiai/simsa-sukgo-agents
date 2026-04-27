@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     naver_client_secret: str = Field(default="")
     lawsuit_api_key: str = Field(default="")
 
+    # Anthropic (재무 분석 Agent)
+    anthropic_api_key: str = Field(default="")
+    anthropic_model: str = Field(default="claude-haiku-4-5-20251001")
+
     # Gmail
     gmail_credentials_blob_path: str = Field(default="credentials/gmail_oauth.json")
 
