@@ -9,6 +9,12 @@ from src.agents.collector.factory import close_collector_clients, get_naver_news
 from src.agents.collector.tools import register_collector_tools
 from src.agents.financial.factory import close_anthropic_client, get_anthropic_client
 from src.agents.financial.tools import register_financial_tools
+from src.agents.report.factory import (
+    close_report_anthropic_client,
+    get_report_anthropic_client,
+)
+from src.agents.report.templates import load_report_samples
+from src.agents.report.tools import register_report_tools
 from src.config.logging import get_logger
 from src.config.settings import get_settings
 from src.mcp.job_tools import register_job_tools
@@ -48,7 +54,24 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
         logger.warning("naver.skipped_no_credentials")
     if settings.anthropic_api_key:
         get_anthropic_client()
-        logger.info("anthropic.client.initialized", model=settings.anthropic_model)
+        get_report_anthropic_client()
+        logger.info(
+            "anthropic.client.initialized",
+            analyzer_model=settings.anthropic_model,
+            report_model=settings.report_model,
+        )
+        if settings.azure_storage_connection_string:
+            try:
+                samples = await load_report_samples(
+                    get_blob_store(), settings.report_samples_blob_prefix
+                )
+                if not samples:
+                    logger.warning(
+                        "report.templates.empty_at_startup",
+                        prefix=settings.report_samples_blob_prefix,
+                    )
+            except Exception as exc:
+                logger.warning("report.templates.load_failed", error=str(exc))
     else:
         logger.warning("anthropic.skipped_no_api_key")
     # TODO(step-1): AgentStatus 테이블에서 status=running 잔존 Job 감지 → 재개
@@ -59,6 +82,7 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
         # TODO(step-4): APScheduler graceful shutdown
         await close_collector_clients()
         await close_anthropic_client()
+        await close_report_anthropic_client()
         await close_storage()
         logger.info("mcp_server.shutdown")
 
@@ -78,5 +102,6 @@ def create_mcp_server() -> FastMCP:
     register_job_tools(mcp)
     register_collector_tools(mcp)
     register_financial_tools(mcp)
+    register_report_tools(mcp)
 
     return mcp

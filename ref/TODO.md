@@ -195,37 +195,39 @@ Claude.ai
 
 ### 3-1. 보고서 템플릿 및 학습 DB 구성
 
-- [ ] 3-1-1. 내부 심사 보고서 표준 양식 분석 및 섹션 정의
-  - 기업 개요 / 신청 목적 / 주요 재무 현황 / 리스크 요인 / 추가 확인사항 / 종합 의견
-- [ ] 3-1-2. 보고서 작성 예시 문서(더미) Azure AI Search 색인 적재
-- [ ] 3-1-3. 섹션별 Few-shot 예시 구성 (`/prompts/report_sections/`)
+- [x] 3-1-1. 내부 심사 보고서 표준 양식 분석 및 섹션 정의 (Claude 가 샘플 보고서를 학습해 동일 구조 재현)
+- [~] 3-1-2. ~~보고서 작성 예시 문서(더미) Azure AI Search 색인 적재~~
+  → 샘플이 3개뿐이라 AI Search 오버킬. **Azure Blob `templates/report_samples/*.docx`** 에 익명화본 업로드 후 startup 1회 로드 → 메모리 캐시.
+- [~] 3-1-3. ~~섹션별 Few-shot 예시 구성 (`/prompts/report_sections/`)~~
+  → 샘플 보고서 전체를 prompt 에 inject (섹션별 분할 미적용). 샘플이 충분히 늘면 그때 분할.
 
 ### 3-2. 보고서 작성 지침(Prompt) 설계
 
-- [ ] 3-2-1. 보고서 작성 시스템 프롬프트 작성 (`/prompts/report_writing.md`)
-- [ ] 3-2-2. 섹션별 서술 생성 프롬프트 템플릿 작성
-- [ ] 3-2-3. 근거-인사이트 연결 구조 설계 (출처 추적 가능하도록)
-- [ ] 3-2-4. 보고서 출력 포맷 정의 (Markdown 우선, DOCX 변환 옵션)
+- [~] 3-2-1. ~~보고서 작성 시스템 프롬프트 작성 (`/prompts/report_writing.md`)~~
+  → `src/agents/report/prompts.py` 모듈 상수로 작성 (PoC 단순화). 별도 파일 분리는 후속.
+- [~] 3-2-2. ~~섹션별 서술 생성 프롬프트 템플릿 작성~~
+  → 단일 시스템 프롬프트 + 샘플 inject 방식으로 통합 (섹션별 분리 호출 없음).
+- [x] 3-2-3. 근거-인사이트 연결 구조 설계 (`result.json.data_gaps` 를 "추가 확인사항" 섹션에 명시 / 자료 없으면 "자료 미확보" 강제)
+- [x] 3-2-4. 보고서 출력 포맷 정의 (Markdown 채택, DOCX 변환은 후속 별도 PR 보류)
 
 ### 3-3. FastMCP Tool 등록 — 보고서 작성
 
-- [ ] 3-3-1. `report_generate(job_id: str)` Tool 정의
-  - `job_id`만 수신, Blob(`collect/raw.json`, `analyze/result.json`)과 Table(`FinancialMetrics` PK=job_id)에서 직접 로드
-- [ ] 3-3-2. 섹션별 순차 생성 파이프라인 구현
-- [ ] 3-3-3. Azure AI Search 유사 보고서 컨텍스트 주입
-- [ ] 3-3-4. Markdown 최종 보고서 조립 후 **Azure Blob `jobs/{job_id}/report/report.md` PUT**
-- [ ] 3-3-5. Blob SAS URL 생성 후 Tool 응답에 포함 (Claude.ai에서 링크로 확인 가능)
-- [ ] 3-3-6. (옵션) `python-docx` 활용 DOCX 변환 후 `jobs/{job_id}/report/report.docx` Blob 추가 저장
-- [ ] 3-3-7. `AgentStatus[report]` status=done, `output_blob_path` 기록
-- [ ] 3-3-8. `AnalysisJobs` status=done, `report_blob_path` 기록
-- [ ] 3-3-9. `AnalysisJobsRef` Table UPDATE (PK=company_id, RK=job_id, risk_level/finished_at 갱신)
-- [ ] 3-3-10. Blob SAS URL 생성 후 경량 응답 포맷으로 반환
-  ```python
-  { "job_id": "...", "status": "done",
-    "report_url": "https://.../report.md?sas=...",
-    "docx_url":   "https://.../report.docx?sas=..." }
-  ```
-- [ ] 3-3-11. Tool 단위 테스트 작성 (Blob mock + Table mock 포함)
+- [x] 3-3-1. `report_generate(job_id: str)` Tool 정의
+  - `job_id`만 수신, Blob(`collect/raw.json`, `analyze/result.json`) 에서 직접 로드
+  - `FinancialMetrics` 조회는 1-1-4 더미 데이터 보류로 미수행
+- [~] 3-3-2. ~~섹션별 순차 생성 파이프라인 구현~~
+  → 단일 Claude 호출로 보고서 전체를 한 번에 생성 (Sonnet-4.6 + 8K max_tokens 로 충분). 섹션별 호출은 출력 일관성 저하·비용 증가라 미채택.
+- [~] 3-3-3. ~~Azure AI Search 유사 보고서 컨텍스트 주입~~
+  → 3-1-2 와 동일 사유 — Blob 기반 RAG 로 대체.
+- [x] 3-3-4. Markdown 최종 보고서 조립 후 **Azure Blob `jobs/{job_id}/report/report.md` PUT**
+- [x] 3-3-5. Blob SAS URL 생성 후 Tool 응답에 포함 (default 7일 만료)
+- [~] 3-3-6. ~~(옵션) `python-docx` 활용 DOCX 변환 후 `jobs/{job_id}/report/report.docx` Blob 추가 저장~~
+  → 별도 PR 로 분리. python-docx 는 sample 추출용으로만 사용 (생성 X).
+- [x] 3-3-7. `AgentStatus[report]` status=done, `output_blob_path` 기록
+- [x] 3-3-8. `AnalysisJobs` status=done, `report_blob_path` 기록 + `finished_at` 갱신
+- [x] 3-3-9. `AnalysisJobsRef` Table UPDATE (PK=company_id, RK=job_id, risk_level/finished_at 갱신)
+- [x] 3-3-10. 경량 응답 포맷 Pydantic 모델 정의 (`ReportResponse`: job_id, risk_level, risk_score, report_url, report_blob_path)
+- [x] 3-3-11. Tool 단위 테스트 작성 (Anthropic mock + Blob/Table mock + DOCX 파싱 + 프롬프트 빌더 + 템플릿 캐시 별도 테스트 포함)
 
 ---
 

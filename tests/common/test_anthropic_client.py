@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.agents.financial.clients import AnthropicClient, _parse_json_loose
+from src.common.anthropic_client import AnthropicClient, _parse_json_loose
 from src.common.exceptions import AnthropicApiError
 
 

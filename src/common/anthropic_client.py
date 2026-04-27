@@ -39,7 +39,7 @@ class AnthropicClient:
         if self._owns_client:
             await self._client.close()
 
-    async def complete_json(self, *, system: str, user: str) -> dict[str, Any]:
+    async def complete_text(self, *, system: str, user: str) -> str:
         try:
             message = await self._client.messages.create(
                 model=self._model,
@@ -58,6 +58,10 @@ class AnthropicClient:
         if not text:
             raise AnthropicApiError("empty response from Claude")
 
+        return text
+
+    async def complete_json(self, *, system: str, user: str) -> dict[str, Any]:
+        text = await self.complete_text(system=system, user=user)
         return _parse_json_loose(text)
 
 
