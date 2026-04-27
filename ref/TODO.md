@@ -127,21 +127,20 @@ Claude.ai
 
 ### 1-4. FastMCP Tool 등록 — 자료 수집
 
-- [ ] 1-4-1. `collect_company_data(job_id: str, company_name: str)` Tool 정의 및 description 작성
+- [x] 1-4-1. `collect_company_data(job_id: str, company_name: str)` Tool 정의 및 description 작성
   - `job_id`는 `create_analysis_job` 반환값을 그대로 수신
-- [ ] 1-4-2. Agent 시작 시 `AgentStatus[collect]` status=running, `AnalysisJobs` status=collecting 업데이트
-- [ ] 1-4-3. `jobs/{job_id}/input/*` Blob에서 업로드 파일 다운로드 및 파싱 (PDF/DOCX/XLSX OCR 포함)
-- [ ] 1-4-4. Companies Table 조회 · Naver News · 소송자료 병렬 호출 (`asyncio.gather`) 구현
-- [ ] 1-4-5. `Companies` Table UPSERT (기업 마스터 등록/갱신)
-- [ ] 1-4-6. 수집 결과 → `FinancialRaw` Table INSERT (PartitionKey=job_id, 연도별 행)
-- [ ] 1-4-7. 수집 결과 전체 → `jobs/{job_id}/collect/raw.json` Blob PUT
-- [ ] 1-4-8. `AgentStatus[collect]` status=done, `output_blob_path` 기록
-- [ ] 1-4-9. 경량 응답 포맷 Pydantic 모델 정의 (job_id + 메타 요약만 반환)
-  ```python
-  { "job_id": "...", "status": "collect_done",
-    "news_count": 47, "lawsuit_count": 2, "financial_years": [2021,2022,2023] }
-  ```
-- [ ] 1-4-10. Tool 단위 테스트 작성 (Azure SDK mock + 외부 API mock)
+- [x] 1-4-2. Agent 시작 시 `AgentStatus[collect]` status=running, `AnalysisJobs` status=collecting 업데이트
+- [~] 1-4-3. ~~`jobs/{job_id}/input/*` Blob에서 업로드 파일 다운로드 및 파싱 (PDF/DOCX/XLSX OCR 포함)~~
+  → 파일명 메타만 raw.json에 기록. 실제 파싱(PDF/DOCX/XLSX OCR)은 후속 별도 PR로 분리.
+- [~] 1-4-4. ~~Companies Table 조회 · Naver News · 소송자료 병렬 호출 (`asyncio.gather`) 구현~~
+  → 현재는 Companies + Naver News 만 (직렬 호출). 소송자료는 1-3 보류 상태. 병렬화는 자료 추가 후.
+- [x] 1-4-5. `Companies` Table 조회 (find_by_name, UPSERT는 `create_analysis_job`에서 수행)
+- [~] 1-4-6. ~~수집 결과 → `FinancialRaw` Table INSERT (PartitionKey=job_id, 연도별 행)~~
+  → 1-1-4 더미 재무 데이터 보류 상태로 소스 없음. 더미 적재 후 별도 PR.
+- [x] 1-4-7. 수집 결과 전체 → `jobs/{job_id}/collect/raw.json` Blob PUT
+- [x] 1-4-8. `AgentStatus[collect]` status=done, `output_blob_path` 기록
+- [x] 1-4-9. 경량 응답 포맷 Pydantic 모델 정의 (job_id + 메타 요약만 반환)
+- [x] 1-4-10. Tool 단위 테스트 작성 (Azure SDK mock + 외부 API mock)
 
 ---
 
