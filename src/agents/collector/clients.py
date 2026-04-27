@@ -7,7 +7,6 @@ from typing import Any, Literal
 
 import httpx
 
-from src.agents.collector.filters import find_negative_keywords
 from src.agents.collector.schemas import NewsArticle
 from src.common.exceptions import NaverApiError
 from src.config.logging import get_logger
@@ -142,15 +141,10 @@ class NaverNewsClient:
         raise NaverApiError("retry loop exited unexpectedly")
 
     def _parse_article(self, item: dict[str, Any]) -> NewsArticle:
-        title = _strip_html(item.get("title", ""))
-        description = _strip_html(item.get("description", ""))
-        keywords = find_negative_keywords(f"{title}\n{description}")
         return NewsArticle(
-            title=title,
-            description=description,
+            title=_strip_html(item.get("title", "")),
+            description=_strip_html(item.get("description", "")),
             url=item.get("originallink") or item.get("link", ""),
             naver_link=item.get("link", ""),
             published_at=_parse_pub_date(item["pubDate"]),
-            is_negative=bool(keywords),
-            matched_keywords=keywords,
         )

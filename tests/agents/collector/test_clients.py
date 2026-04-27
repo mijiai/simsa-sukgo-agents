@@ -65,7 +65,7 @@ async def test_search_parses_items_and_strips_html() -> None:
             json={
                 "items": [
                     _sample_item(title="<b>ACME</b>, 신규 사업"),
-                    _sample_item(title="ACME, 부도설 확산", description="<b>부도</b> 의혹"),
+                    _sample_item(title="ACME, 신제품 출시", description="<b>신제품</b> 라인업"),
                 ]
             },
         )
@@ -80,9 +80,8 @@ async def test_search_parses_items_and_strips_html() -> None:
     assert seen_headers["x-naver-client-secret"] == "csecret"
     assert len(results) == 2
     assert results[0].title == "ACME, 신규 사업"
-    assert results[0].is_negative is False
-    assert results[1].is_negative is True
-    assert "부도" in results[1].matched_keywords
+    assert results[1].title == "ACME, 신제품 출시"
+    assert results[1].description == "신제품 라인업"
 
 
 async def test_search_paginates_until_max_results() -> None:

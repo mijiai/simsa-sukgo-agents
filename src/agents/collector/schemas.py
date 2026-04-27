@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class NewsArticle(BaseModel):
@@ -9,5 +9,3 @@ class NewsArticle(BaseModel):
     url: str
     naver_link: str
     published_at: datetime
-    is_negative: bool = False
-    matched_keywords: list[str] = Field(default_factory=list)
