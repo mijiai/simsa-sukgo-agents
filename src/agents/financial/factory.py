@@ -1,4 +1,4 @@
-from src.agents.financial.clients import AnthropicClient
+from src.common.anthropic_client import AnthropicClient
 from src.config.settings import get_settings
 
 _anthropic_client: AnthropicClient | None = None

@@ -1,7 +1,6 @@
 import json
 from datetime import UTC, datetime
 
-from src.agents.financial.clients import AnthropicClient
 from src.agents.financial.prompts import SYSTEM_PROMPT, build_user_prompt
 from src.agents.financial.schemas import (
     AnalysisInputSummary,
@@ -10,6 +9,7 @@ from src.agents.financial.schemas import (
     AnalyzeResponse,
     ClaudeJudgment,
 )
+from src.common.anthropic_client import AnthropicClient
 from src.config.logging import get_logger
 from src.storage.blob_store import BlobStore
 from src.storage.schemas import AgentName, JobStatus
