@@ -73,7 +73,9 @@ Claude.ai
   - `lifespan` 기동 시 `AgentStatus` 테이블에서 `status=running` 잔존 Job 감지 → 해당 Agent부터 자동 재개 (컨테이너 재시작 복구)
 - [x] 0-7. `/health` 엔드포인트 추가 (Azure Container Apps 헬스체크용, `GET /health → 200 OK`)
 - [x] 0-8. `docker-compose.yml` 로컬 개발 환경 구성 (`.env` 마운트, 포트 포워딩 8000:8000)
-- [ ] 0-9. 로컬 Docker 기동 후 Claude.ai MCP SSE 연결 동작 확인 (ngrok 터널 활용)
+- [x] 0-9. 로컬 서버 (`uv run python -m src.main`) + ngrok 터널 → Claude.ai MCP SSE 연결 동작 확인
+  - Docker 대신 uv 직접 실행 (Docker 미설치). Claude.ai 입장에서는 동일 SSE endpoint
+  - 4-agent 자율 오케스트레이션 (create → collect → analyze → report) end-to-end 동작 확인 완료
 - [x] 0-10. **Job 생성 + 파일 업로드 초기화 Tool** 구현 (`create_analysis_job`)
   - 사용자가 분석 버튼을 누를 때 가장 먼저 호출되는 Tool
   - `AnalysisJobs` Table INSERT (status=pending), `AnalysisJobsRef` Table INSERT (PK=company_id)
@@ -339,40 +341,26 @@ Claude.ai
 
 ### 6-1. Dockerfile 작성
 
-- [ ] 6-1-1. 베이스 이미지 선정 (`python:3.12-slim`)
-- [ ] 6-1-2. 멀티스테이지 빌드 구성 (빌드 스테이지 / 런타임 스테이지 분리)
-  ```dockerfile
-  FROM python:3.12-slim AS builder
-  WORKDIR /app
-  COPY requirements.txt .
-  RUN pip install --no-cache-dir -r requirements.txt
-
-  FROM python:3.12-slim
-  WORKDIR /app
-  COPY --from=builder /usr/local/lib/python3.12 /usr/local/lib/python3.12
-  COPY . .
-  EXPOSE 8000
-  HEALTHCHECK --interval=30s --timeout=5s \
-    CMD curl -f http://localhost:8000/health || exit 1
-  CMD ["python", "main.py"]
-  ```
-- [ ] 6-1-3. `.dockerignore` 작성 (`.env`, `__pycache__`, `tests/`, `.git` 제외)
-- [ ] 6-1-4. 컨테이너 내 환경변수 주입 방식 확인 (Azure Container Apps Secrets 연동)
+- [x] 6-1-1. 베이스 이미지: `ghcr.io/astral-sh/uv:python3.12-bookworm-slim` 채택 (uv 빌트인, python:3.12-slim 대신)
+- [x] 6-1-2. uv sync 캐시 마운트 + 두 단계 sync (lock → src)로 재빌드 효율화
+- [x] 6-1-3. `.dockerignore` 작성 (`.env`, `__pycache__`, `tests/`, `.git`, `.venv` 등 제외)
+- [x] 6-1-4. ACA Secrets → env vars 매핑은 `scripts/deploy_azure.sh` 에서 일괄 처리
 
 ### 6-2. 로컬 Docker 검증
 
-- [ ] 6-2-1. `docker build` 성공 및 이미지 크기 확인
-- [ ] 6-2-2. `docker-compose up` 로컬 전체 스택 기동 확인
-- [ ] 6-2-3. 로컬 컨테이너 → Claude.ai SSE 연결 동작 확인 (ngrok 터널 활용)
-- [ ] 6-2-4. 컨테이너 재시작 후 스케줄러 상태 복원 동작 확인
+- [~] 6-2-1. ~~`docker build` 성공 및 이미지 크기 확인~~
+  → Docker 미설치. ACR Build (`az acr build`) 로 클라우드 빌드 사용 (6-3-3 참조).
+- [~] 6-2-2. ~~`docker-compose up` 로컬 전체 스택 기동 확인~~
+  → 6-2-1 과 동일 사유. 로컬 검증은 `uv run python -m src.main` 으로 대체 (0-9 참조).
+- [x] 6-2-3. (uv 직접 실행 + ngrok) → Claude.ai SSE 연결 동작 확인 — 0-9 와 동일
+- [ ] 6-2-4. 컨테이너 재시작 후 스케줄러 상태 복원 동작 확인 (APScheduler 미구현 상태로 보류)
 
 ### 6-3. Azure Container Registry (ACR) 연동
 
-- [ ] 6-3-1. ACR 리소스 생성 (Azure Portal)
-- [ ] 6-3-2. Docker 이미지 태깅 규칙 정의
-  - `<acr-name>.azurecr.io/simsasukgo:<version>` (semver 또는 git SHA)
-- [ ] 6-3-3. `az acr login` 후 `docker push` → ACR 업로드 확인
-- [ ] 6-3-4. ACR 이미지 취약점 스캔 결과 확인 (Defender for Containers)
+- [x] 6-3-1. ACR 리소스 생성 — `scripts/deploy_azure.sh` 에서 idempotent create
+- [x] 6-3-2. 이미지 태깅 규칙: `<acr>.azurecr.io/simsasukgo-mcp:<git-sha>` + `:latest` 동시 태깅
+- [x] 6-3-3. `az acr build` 로 클라우드 빌드 + ACR push 일체화 (Docker 로컬 불필요)
+- [ ] 6-3-4. ACR 이미지 취약점 스캔 결과 확인 (Defender for Containers — 별도 활성화 필요)
 
 ---
 
@@ -413,18 +401,15 @@ Claude.ai
 
 ### 7-2. Azure Container Apps 배포
 
-- [ ] 7-2-1. Container Apps **환경(Environment)** 생성
-- [ ] 7-2-2. Container App 생성 (ACR 이미지 연결)
-  - 초기 리소스 : CPU 1 core / Memory 2Gi (부하 테스트 후 조정)
-- [ ] 7-2-3. **스케일링 설정**
-  - 최솟값 : **1** (Always-on — APScheduler 상시 유지 필수)
-  - 최댓값 : 3 (SSE 동시 요청 급증 대응)
-- [ ] 7-2-4. **환경변수 및 Secrets 등록** (Azure Portal UI 또는 `az containerapp update`)
-  - `.env.example` 전체 항목을 Container App Secrets로 등록
-- [ ] 7-2-5. **Ingress 설정** : External / HTTPS / 대상 포트 8000
-- [ ] 7-2-6. (선택) 커스텀 도메인 및 관리형 TLS 인증서 설정
-- [ ] 7-2-7. `GET /health` 엔드포인트로 Container Apps Liveness Probe 설정
-- [ ] 7-2-8. 배포 후 로그 스트림에서 FastMCP SSE 서버 정상 기동 확인
+- [x] 7-2-1. Container Apps **환경(Environment)** 생성 — `simsasukgo-aca-env` (`scripts/deploy_azure.sh`)
+- [x] 7-2-2. Container App 생성 (ACR 이미지 연결) — `simsasukgo-mcp`
+  - 초기 리소스: CPU 0.5 / Memory 1Gi (PoC 기준, env로 override 가능)
+- [x] 7-2-3. 스케일링 설정 — min 1 (Always-on, 향후 APScheduler 대비) / max 3
+- [x] 7-2-4. 환경변수 및 Secrets 등록 — `.env` 의 시크릿 4종(ANTHROPIC_API_KEY, AZURE_STORAGE_CONNECTION_STRING, NAVER_CLIENT_ID/SECRET) 을 ACA secret 으로 + env var 가 secretref 참조. 나머지는 일반 env var.
+- [x] 7-2-5. Ingress 설정: External / HTTPS / target-port 8000 / transport auto (SSE 호환)
+- [ ] 7-2-6. (선택) 커스텀 도메인 및 관리형 TLS 인증서 설정 — PoC 단계 보류
+- [ ] 7-2-7. `GET /health` 엔드포인트로 Container Apps Liveness Probe 설정 — ACA 기본 probe 사용 (별도 설정은 옵션)
+- [ ] 7-2-8. 배포 후 로그 스트림 확인 — 사용자 실 배포 후 `az containerapp logs show -n simsasukgo-mcp -g SIMSASUKGO-GR --follow` 로 검증
 
 ### 7-3. CI/CD 파이프라인 구성 (선택)
 
