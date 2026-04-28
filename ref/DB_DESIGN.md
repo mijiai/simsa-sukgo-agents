@@ -153,11 +153,14 @@ pending
 |---|---|---|
 | **PartitionKey** | String | `company_id` |
 | **RowKey** | String | 실행 일자 `YYYYMMDD` |
-| `risk_level` | String | `정상` / `주의` / `경고` / `위험` |
-| `news_negative_count` | Int | 부정 뉴스 건수 |
-| `lawsuit_count` | Int | 소송 건수 |
-| `key_signals` | String | 주요 위험 신호 요약 (JSON string) |
-| `snapshot_blob_path` | String | 상세 원시 데이터 Blob 경로 |
+| `risk_level` | String | `LOW` / `MEDIUM` / `HIGH` / `CRITICAL` (RiskLevel enum) |
+| `risk_score` | Double | 0~100 (analyzer 가 산출한 정량 점수) |
+| `analysis_job_id` | String | 이 스냅샷을 생성한 AnalysisJob.id (UI 드릴다운 용) |
+| `news_count` | Int | 수집된 뉴스 총 건수 (collector 는 부정 판단 X) |
+| `lawsuit_count` | Int | 소송 건수 (1-3 보류, 현재 0) |
+| `summary` | String | 분석 요약 1000자 이내 (UI 목록 표시용) |
+| `key_signals` | String | 주요 위험 신호 5개 ` / ` 조인 (UI 목록 한 줄 표시) |
+| `snapshot_blob_path` | String | 상세 원시 데이터 Blob 경로 (`monitoring/{company_id}/{YYYYMMDD}/snapshot.json`) |
 
 ---
 

@@ -73,11 +73,17 @@ def test_model_to_entity_skips_none_and_inserts_keys() -> None:
 
 def test_model_to_entity_respects_exclude() -> None:
     snap = MonitoringSnapshot(
-        company_id="c1", run_date=date(2026, 4, 26), risk_level=RiskLevel.HIGH
+        company_id="c1",
+        run_date=date(2026, 4, 26),
+        risk_level=RiskLevel.HIGH,
+        risk_score=80.0,
+        analysis_job_id="job-1",
     )
     entity = _model_to_entity(snap, "c1", "20260426", exclude={"run_date"})
     assert "run_date" not in entity
     assert entity["risk_level"] == "HIGH"
+    assert entity["risk_score"] == 80.0
+    assert entity["analysis_job_id"] == "job-1"
 
 
 def test_entity_to_model_strips_reserved_keys_and_validates() -> None:
@@ -295,7 +301,9 @@ async def test_monitoring_snapshots_repo_writes_yyyymmdd_row_key() -> None:
         company_id="c1",
         run_date=date(2026, 4, 26),
         risk_level=RiskLevel.MEDIUM,
-        news_negative_count=3,
+        risk_score=55.0,
+        analysis_job_id="job-1",
+        news_count=3,
         lawsuit_count=1,
     )
     await repo.insert(snap)
@@ -304,6 +312,8 @@ async def test_monitoring_snapshots_repo_writes_yyyymmdd_row_key() -> None:
     assert sent["PartitionKey"] == "c1"
     assert sent["RowKey"] == "20260426"
     assert "run_date" not in sent
+    assert sent["risk_score"] == 55.0
+    assert sent["analysis_job_id"] == "job-1"
 
 
 async def test_monitoring_snapshots_list_round_trips_run_date() -> None:
@@ -315,8 +325,11 @@ async def test_monitoring_snapshots_list_round_trips_run_date() -> None:
             "RowKey": "20260101",
             "company_id": "c1",
             "risk_level": "LOW",
-            "news_negative_count": 0,
+            "risk_score": 10.0,
+            "analysis_job_id": "job-a",
+            "news_count": 0,
             "lawsuit_count": 0,
+            "summary": "",
             "key_signals": "",
         },
         {
@@ -324,8 +337,11 @@ async def test_monitoring_snapshots_list_round_trips_run_date() -> None:
             "RowKey": "20260426",
             "company_id": "c1",
             "risk_level": "HIGH",
-            "news_negative_count": 5,
+            "risk_score": 75.0,
+            "analysis_job_id": "job-b",
+            "news_count": 5,
             "lawsuit_count": 2,
+            "summary": "",
             "key_signals": "",
         },
     ]
