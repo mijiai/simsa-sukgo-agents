@@ -32,10 +32,11 @@
              ▼
 ┌─────────────────────────────────────────────────────┐
 │  Agent 1 : 자료 수집                                  │
-│  READ   → 내부 DB(Azure SQL), Naver News, 소송 API   │
+│  READ   → Table: Companies (기업 마스터 조회)         │
+│           Naver News, 소송 API                        │
 │           Blob: jobs/{job_id}/input/* (업로드 파일)   │
 │  WRITE  → Blob: jobs/{job_id}/collect/raw.json       │
-│           SQL: financial_raw (재무 원시 수치 행 INSERT)│
+│           Table: FinancialRaw (연도별 재무 원시 INSERT)│
 │           Table: AgentStatus[collect] = done          │
 └────────────┬────────────────────────────────────────┘
              │ job_id
@@ -43,10 +44,10 @@
 ┌─────────────────────────────────────────────────────┐
 │  Agent 2 : 재무 분석                                  │
 │  READ   → Blob: jobs/{job_id}/collect/raw.json       │
-│           SQL: financial_raw WHERE job_id=?           │
+│           Table: FinancialRaw query PK=job_id         │
 │           Azure AI Search (유사 사례)                 │
 │  WRITE  → Blob: jobs/{job_id}/analyze/result.json    │
-│           SQL: financial_metrics (계산 지표 INSERT)    │
+│           Table: FinancialMetrics (계산 지표 INSERT)   │
 │           Table: AgentStatus[analyze] = done          │
 └────────────┬────────────────────────────────────────┘
              │ job_id
@@ -55,11 +56,12 @@
 │  Agent 3 : 보고서 작성                                │
 │  READ   → Blob: jobs/{job_id}/collect/raw.json       │
 │           Blob: jobs/{job_id}/analyze/result.json     │
-│           SQL: financial_metrics WHERE job_id=?       │
+│           Table: FinancialMetrics query PK=job_id     │
 │           Azure AI Search (보고서 템플릿)             │
 │  WRITE  → Blob: jobs/{job_id}/report/report.md       │
 │           Blob: jobs/{job_id}/report/report.docx      │
 │           Table: AnalysisJobs status = "done"         │
+│           Table: AnalysisJobsRef UPDATE risk_level    │
 └─────────────────────────────────────────────────────┘
              │
              ▼
@@ -151,11 +153,14 @@ pending
 |---|---|---|
 | **PartitionKey** | String | `company_id` |
 | **RowKey** | String | 실행 일자 `YYYYMMDD` |
-| `risk_level` | String | `정상` / `주의` / `경고` / `위험` |
-| `news_negative_count` | Int | 부정 뉴스 건수 |
-| `lawsuit_count` | Int | 소송 건수 |
-| `key_signals` | String | 주요 위험 신호 요약 (JSON string) |
-| `snapshot_blob_path` | String | 상세 원시 데이터 Blob 경로 |
+| `risk_level` | String | `LOW` / `MEDIUM` / `HIGH` / `CRITICAL` (RiskLevel enum) |
+| `risk_score` | Double | 0~100 (analyzer 가 산출한 정량 점수) |
+| `analysis_job_id` | String | 이 스냅샷을 생성한 AnalysisJob.id (UI 드릴다운 용) |
+| `news_count` | Int | 수집된 뉴스 총 건수 (collector 는 부정 판단 X) |
+| `lawsuit_count` | Int | 소송 건수 (1-3 보류, 현재 0) |
+| `summary` | String | 분석 요약 1000자 이내 (UI 목록 표시용) |
+| `key_signals` | String | 주요 위험 신호 5개 ` / ` 조인 (UI 목록 한 줄 표시) |
+| `snapshot_blob_path` | String | 상세 원시 데이터 Blob 경로 (`monitoring/{company_id}/{YYYYMMDD}/snapshot.json`) |
 
 ---
 
@@ -185,6 +190,101 @@ pending
 | `last_run_at` | DateTime | 마지막 배치 실행 시각 |
 | `next_run_at` | DateTime | 다음 예정 실행 시각 |
 | `run_count` | Int | 누적 실행 횟수 |
+
+---
+
+### 테이블 7 : `Companies`
+
+**역할** : 기업 마스터 데이터 — 동일 기업 반복 분석 시 재사용
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| **PartitionKey** | String | `"company"` 고정 |
+| **RowKey** | String | `company_id` — UUID 또는 법인번호 |
+| `company_name` | String | 기업명 |
+| `business_no` | String | 사업자번호 |
+| `corp_no` | String | 법인번호 |
+| `industry_code` | String | 업종 코드 |
+| `industry_name` | String | 업종명 |
+| `created_at` | DateTime | 마스터 등록 시각 |
+| `updated_at` | DateTime | 마지막 갱신 시각 |
+
+> 동일 기업이 여러 차례 분석되어도 마스터는 1개. Agent 1이 UPSERT로 관리.
+
+---
+
+### 테이블 8 : `FinancialRaw`
+
+**역할** : Agent 1이 수집한 재무제표 원시 수치 — 연도별 행
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| **PartitionKey** | String | `job_id` |
+| **RowKey** | String | `{fiscal_year}-{fiscal_type}` (예: `2023-annual`) |
+| `company_id` | String | 기업 식별자 (Companies 참조) |
+| `fiscal_year` | Int | 결산 연도 (예: 2023) |
+| `fiscal_type` | String | `annual` / `quarter` |
+| `revenue` | Int64 | 매출액 (원) |
+| `operating_profit` | Int64 | 영업이익 |
+| `net_income` | Int64 | 당기순이익 |
+| `total_assets` | Int64 | 자산총계 |
+| `total_liabilities` | Int64 | 부채총계 |
+| `total_equity` | Int64 | 자본총계 |
+| `current_assets` | Int64 | 유동자산 |
+| `current_liabilities` | Int64 | 유동부채 |
+| `operating_cf` | Int64 | 영업활동현금흐름 |
+| `data_source` | String | `DART` / `KISLINE` / `internal` |
+| `created_at` | DateTime | 수집 시각 |
+
+> 통화 금액은 KRW 정수(원)로 저장 — `Int64` 사용 (±9.2e18까지).
+> Agent 2는 `PartitionKey=job_id` 단일 파티션 스캔으로 모든 연도 행을 빠르게 조회.
+
+---
+
+### 테이블 9 : `FinancialMetrics`
+
+**역할** : Agent 2가 계산한 재무 지표 — Job·기준연도 단위
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| **PartitionKey** | String | `job_id` |
+| **RowKey** | String | `str(base_year)` (예: `"2023"`) |
+| `company_id` | String | 기업 식별자 |
+| `base_year` | Int | 분석 기준 연도 |
+| `debt_ratio` | Double | 부채비율 (%) |
+| `current_ratio` | Double | 유동비율 (%) |
+| `interest_coverage` | Double | 이자보상배율 (배) |
+| `operating_margin` | Double | 영업이익률 (%) |
+| `net_margin` | Double | 순이익률 (%) |
+| `roa` | Double | 총자산이익률 (%) |
+| `roe` | Double | 자기자본이익률 (%) |
+| `revenue_growth` | Double | 매출 성장률 YoY (%) |
+| `profit_growth` | Double | 영업이익 성장률 YoY (%) |
+| `risk_level` | String | `LOW` / `MEDIUM` / `HIGH` / `CRITICAL` |
+| `risk_score` | Double | 0~100 위험 점수 |
+| `created_at` | DateTime | 계산 시각 |
+
+> 비율·점수는 `Double` 저장 (Table Storage가 `DECIMAL` 미지원). 0.0001%대 미세 정밀도 손실 가능 — PoC 위험 평가에는 무시 가능 수준.
+
+---
+
+### 테이블 10 : `AnalysisJobsRef`
+
+**역할** : 기업별 Job 이력 인덱스 — "이 기업의 과거 분석 목록" 빠른 조회
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| **PartitionKey** | String | `company_id` |
+| **RowKey** | String | `job_id` |
+| `company_name` | String | 기업명 (denormalized — UI 표시용) |
+| `status` | String | `pending` / `collecting` / `analyzing` / `reporting` / `done` / `failed` |
+| `risk_level` | String | 최종 위험 등급 (완료 후) |
+| `created_at` | DateTime | Job 생성 시각 |
+| `finished_at` | DateTime | 완료 시각 |
+
+> `AnalysisJobs` (테이블 1) 가 PartitionKey=`"job"`이라 "특정 기업의 과거 Job" 조회는 Cross-partition scan 필요.
+> 이 테이블은 그 보조 인덱스 — `company_id`로 파티셔닝하여 1회 GET으로 이력 조회.
+> 무결성은 Agent 코드에서 보장 (트랜잭션 없음).
 
 ---
 
@@ -255,171 +355,44 @@ simsasukgo/                              Blob 컨테이너
 
 ---
 
-## 4. Azure SQL 스키마
-
-> Blob에는 원시 JSON 전체를, SQL에는 **집계·비교·검색이 필요한 정형 수치만** 저장
-
----
-
-### 테이블 1 : `companies`
-
-기업 마스터 데이터 — 동일 기업 반복 분석 시 재사용
-
-```sql
-CREATE TABLE companies (
-    company_id      VARCHAR(36) PRIMARY KEY,    -- UUID 또는 법인번호
-    company_name    NVARCHAR(200) NOT NULL,
-    business_no     VARCHAR(20),                -- 사업자번호
-    corp_no         VARCHAR(20),                -- 법인번호
-    industry_code   VARCHAR(20),                -- 업종 코드
-    industry_name   NVARCHAR(100),
-    created_at      DATETIME2 DEFAULT GETDATE()
-);
-```
-
----
-
-### 테이블 2 : `financial_raw`
-
-Agent 1이 수집한 재무제표 원시 수치 (연도별 행)
-
-```sql
-CREATE TABLE financial_raw (
-    id                  BIGINT IDENTITY PRIMARY KEY,
-    job_id              VARCHAR(36) NOT NULL,       -- AnalysisJobs의 job_id
-    company_id          VARCHAR(36) NOT NULL,
-    fiscal_year         INT NOT NULL,               -- 결산 연도 (예: 2023)
-    fiscal_type         VARCHAR(10),                -- 'annual' / 'quarter'
-
-    -- 손익계산서
-    revenue             BIGINT,                     -- 매출액 (원)
-    operating_profit    BIGINT,                     -- 영업이익
-    net_income          BIGINT,                     -- 당기순이익
-
-    -- 재무상태표
-    total_assets        BIGINT,                     -- 자산총계
-    total_liabilities   BIGINT,                     -- 부채총계
-    total_equity        BIGINT,                     -- 자본총계
-    current_assets      BIGINT,                     -- 유동자산
-    current_liabilities BIGINT,                     -- 유동부채
-
-    -- 현금흐름
-    operating_cf        BIGINT,                     -- 영업활동현금흐름
-
-    data_source         VARCHAR(50),                -- 'DART' / 'KISLINE' / 'internal'
-    created_at          DATETIME2 DEFAULT GETDATE(),
-
-    FOREIGN KEY (company_id) REFERENCES companies(company_id)
-);
-
-CREATE INDEX idx_financial_raw_job        ON financial_raw(job_id);
-CREATE INDEX idx_financial_raw_company    ON financial_raw(company_id, fiscal_year);
-```
-
----
-
-### 테이블 3 : `financial_metrics`
-
-Agent 2가 계산한 재무 지표 (job 단위 결과)
-
-```sql
-CREATE TABLE financial_metrics (
-    id                  BIGINT IDENTITY PRIMARY KEY,
-    job_id              VARCHAR(36) NOT NULL,
-    company_id          VARCHAR(36) NOT NULL,
-    base_year           INT NOT NULL,               -- 분석 기준 연도
-
-    -- 안정성
-    debt_ratio          DECIMAL(10,4),              -- 부채비율 (%)
-    current_ratio       DECIMAL(10,4),              -- 유동비율 (%)
-    interest_coverage   DECIMAL(10,4),              -- 이자보상배율 (배)
-
-    -- 수익성
-    operating_margin    DECIMAL(10,4),              -- 영업이익률 (%)
-    net_margin          DECIMAL(10,4),              -- 순이익률 (%)
-    roa                 DECIMAL(10,4),              -- 총자산이익률 (%)
-    roe                 DECIMAL(10,4),              -- 자기자본이익률 (%)
-
-    -- 성장성
-    revenue_growth      DECIMAL(10,4),              -- 매출 성장률 YoY (%)
-    profit_growth       DECIMAL(10,4),              -- 영업이익 성장률 YoY (%)
-
-    -- 위험 평가
-    risk_level          VARCHAR(10),                -- '정상'/'주의'/'경고'/'위험'
-    risk_score          DECIMAL(5,2),               -- 0~100 위험 점수
-    created_at          DATETIME2 DEFAULT GETDATE(),
-
-    FOREIGN KEY (company_id) REFERENCES companies(company_id)
-);
-
-CREATE INDEX idx_metrics_job        ON financial_metrics(job_id);
-CREATE INDEX idx_metrics_company    ON financial_metrics(company_id, base_year DESC);
-```
-
----
-
-### 테이블 4 : `analysis_jobs_ref`
-
-Table Storage의 `AnalysisJobs`는 빠른 상태 조회용,
-이 SQL 테이블은 기업별 이력 조회·집계가 필요할 때 사용
-
-```sql
-CREATE TABLE analysis_jobs_ref (
-    job_id          VARCHAR(36) PRIMARY KEY,
-    company_id      VARCHAR(36),
-    company_name    NVARCHAR(200),
-    status          VARCHAR(20),
-    risk_level      VARCHAR(10),                    -- 최종 위험 등급 (완료 후)
-    created_at      DATETIME2,
-    finished_at     DATETIME2,
-
-    FOREIGN KEY (company_id) REFERENCES companies(company_id)
-);
-
-CREATE INDEX idx_jobs_ref_company   ON analysis_jobs_ref(company_id);
-CREATE INDEX idx_jobs_ref_created   ON analysis_jobs_ref(created_at DESC);
-```
-
----
-
-## 5. Agent별 Storage Read / Write 매핑
+## 4. Agent별 Storage Read / Write 매핑
 
 | 시점 | 주체 | Action | Storage |
 |---|---|---|---|
 | 분석 버튼 클릭 | 서버 | INSERT `AnalysisJobs` status=pending | Table |
-| 분석 버튼 클릭 | 서버 | INSERT `analysis_jobs_ref` | SQL |
+| 분석 버튼 클릭 | 서버 | INSERT `AnalysisJobsRef` (PK=company_id) | Table |
 | 파일 업로드 | 서버 | PUT `jobs/{job_id}/input/*` | Blob |
 | 커스텀 프롬프트 | 서버 | PUT `jobs/{job_id}/input/prompt.txt` | Blob |
 | Agent 1 시작 | Agent 1 | UPDATE `AnalysisJobs` status=collecting | Table |
 | Agent 1 시작 | Agent 1 | INSERT `AgentStatus[collect]` status=running | Table |
 | Agent 1 실행 | Agent 1 | GET `jobs/{job_id}/input/*` (파일 파싱) | Blob |
-| Agent 1 실행 | Agent 1 | SELECT 재무 원시 데이터 (기업명/법인번호) | SQL |
+| Agent 1 실행 | Agent 1 | UPSERT `Companies` (기업 마스터 등록/갱신) | Table |
 | Agent 1 완료 | Agent 1 | PUT `jobs/{job_id}/collect/raw.json` | Blob |
-| Agent 1 완료 | Agent 1 | INSERT `financial_raw` 행들 | SQL |
+| Agent 1 완료 | Agent 1 | INSERT `FinancialRaw` 행들 (PK=job_id) | Table |
 | Agent 1 완료 | Agent 1 | UPDATE `AgentStatus[collect]` status=done | Table |
 | Agent 2 시작 | Agent 2 | UPDATE `AnalysisJobs` status=analyzing | Table |
 | Agent 2 시작 | Agent 2 | INSERT `AgentStatus[analyze]` status=running | Table |
 | Agent 2 실행 | Agent 2 | GET `jobs/{job_id}/collect/raw.json` | Blob |
-| Agent 2 실행 | Agent 2 | SELECT `financial_raw` WHERE job_id=? | SQL |
+| Agent 2 실행 | Agent 2 | Query `FinancialRaw` PK=job_id | Table |
 | Agent 2 실행 | Agent 2 | SEARCH 유사 사례 | AI Search |
 | Agent 2 완료 | Agent 2 | PUT `jobs/{job_id}/analyze/result.json` | Blob |
-| Agent 2 완료 | Agent 2 | INSERT `financial_metrics` 행 | SQL |
+| Agent 2 완료 | Agent 2 | INSERT `FinancialMetrics` (PK=job_id, RK=base_year) | Table |
 | Agent 2 완료 | Agent 2 | UPDATE `AgentStatus[analyze]` status=done | Table |
 | Agent 3 시작 | Agent 3 | UPDATE `AnalysisJobs` status=reporting | Table |
 | Agent 3 시작 | Agent 3 | INSERT `AgentStatus[report]` status=running | Table |
 | Agent 3 실행 | Agent 3 | GET `jobs/{job_id}/collect/raw.json` | Blob |
 | Agent 3 실행 | Agent 3 | GET `jobs/{job_id}/analyze/result.json` | Blob |
-| Agent 3 실행 | Agent 3 | SELECT `financial_metrics` WHERE job_id=? | SQL |
+| Agent 3 실행 | Agent 3 | Query `FinancialMetrics` PK=job_id | Table |
 | Agent 3 실행 | Agent 3 | SEARCH 보고서 템플릿 | AI Search |
 | Agent 3 완료 | Agent 3 | PUT `jobs/{job_id}/report/report.md` | Blob |
 | Agent 3 완료 | Agent 3 | GENERATE SAS URL (report.md, report.docx) | Blob |
 | Agent 3 완료 | Agent 3 | UPDATE `AnalysisJobs` status=done, report_blob_path=? | Table |
 | Agent 3 완료 | Agent 3 | UPDATE `AgentStatus[report]` status=done | Table |
-| Agent 3 완료 | Agent 3 | UPDATE `analysis_jobs_ref` risk_level=?, finished_at=? | SQL |
+| Agent 3 완료 | Agent 3 | UPDATE `AnalysisJobsRef` risk_level=?, finished_at=? | Table |
 
 ---
 
-## 6. MCP Tool 간 실제 전달 페이로드
+## 5. MCP Tool 간 실제 전달 페이로드
 
 Agent 간에 오가는 데이터는 `job_id` + 경량 메타데이터만.
 Claude는 이 응답을 받아 다음 Tool을 호출한다.
@@ -459,7 +432,7 @@ Claude는 이 응답을 받아 다음 Tool을 호출한다.
 
 ---
 
-## 7. 에러 복구 전략
+## 6. 에러 복구 전략
 
 | 에러 상황 | 대응 |
 |---|---|
@@ -470,18 +443,21 @@ Claude는 이 응답을 받아 다음 Tool을 호출한다.
 
 ---
 
-## 8. 구현 참고 — 모듈 구조
+## 7. 구현 참고 — 모듈 구조
 
 ```
 /storage
   ├── blob_store.py      # Blob 업로드/다운로드/SAS URL 생성
-  ├── table_store.py     # Table Storage CRUD (AnalysisJobs, AgentStatus 등)
-  └── sql_store.py       # SQLAlchemy async (financial_raw, financial_metrics)
+  └── table_store.py     # Table Storage CRUD (10개 테이블)
+                         #   - 운영: AnalysisJobs, AgentStatus
+                         #   - 정형: Companies, FinancialRaw, FinancialMetrics, AnalysisJobsRef
+                         #   - 모니터링: MonitoringTargets, MonitoringSnapshots, AlertHistory
+                         #   - 인프라: SchedulerState
 
 /agents
-  ├── collect.py         # job_id 받아 Blob + SQL 쓰기
-  ├── analyze.py         # job_id로 Blob + SQL 읽기 → 분석 후 저장
-  └── report.py          # job_id로 Blob + SQL 읽기 → 보고서 생성 후 저장
+  ├── collect.py         # job_id 받아 Blob + Table 쓰기
+  ├── analyze.py         # job_id로 Blob + Table 읽기 → 분석 후 저장
+  └── report.py          # job_id로 Blob + Table 읽기 → 보고서 생성 후 저장
 
 # 각 Agent Tool 시그니처 (job_id만 받는다)
 @mcp.tool()
@@ -493,3 +469,5 @@ async def analyze_financials(job_id: str) -> dict: ...
 @mcp.tool()
 async def report_generate(job_id: str) -> dict: ...
 ```
+
+> Azure SQL · CosmosDB는 사용하지 않는다. 정형 데이터도 Table Storage로 통합 — PoC 인프라 단순화 목적.
