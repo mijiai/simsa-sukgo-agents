@@ -23,7 +23,7 @@
 set -euo pipefail
 
 # === 설정 ===
-RG="${RG:-SIMSASUKGO-GR}"
+RG="${RG:-SIMSASUKGO-RG}"
 LOCATION="${LOCATION:-eastus2}"
 NAME_PREFIX="${NAME_PREFIX:-simsasukgo}"
 ACR_NAME="${ACR_NAME:-${NAME_PREFIX}acr}"
