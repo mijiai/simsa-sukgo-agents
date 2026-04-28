@@ -15,7 +15,6 @@ __pycache__
 tests
 ref
 CLAUDE.md
-README.md
 
 .DS_Store
 .vscode
