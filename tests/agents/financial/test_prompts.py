@@ -67,3 +67,27 @@ def test_user_prompt_includes_uploaded_files() -> None:
     out = build_user_prompt(company_name="ACME", raw=raw)
     assert "사업계획서.pdf" in out
     assert "재무제표.xlsx" in out
+
+
+def test_user_prompt_inserts_no_samples_notice_when_empty() -> None:
+    raw = {"news": [], "lawsuits": [], "uploaded_files": [], "financial_years": []}
+    out = build_user_prompt(company_name="ACME", raw=raw, samples=[])
+    assert "샘플이 로드되지 않았습니다" in out
+
+
+def test_user_prompt_injects_samples_with_index_headers() -> None:
+    raw = {"news": [], "lawsuits": [], "uploaded_files": [], "financial_years": []}
+    samples = ["부채비율 200% — HIGH", "유동비율 80% — MEDIUM"]
+    out = build_user_prompt(company_name="ACME", raw=raw, samples=samples)
+    assert "=== 샘플 1 ===" in out
+    assert "부채비율 200% — HIGH" in out
+    assert "=== 샘플 2 ===" in out
+    assert "유동비율 80% — MEDIUM" in out
+
+
+def test_user_prompt_truncates_huge_sample() -> None:
+    raw = {"news": [], "lawsuits": [], "uploaded_files": [], "financial_years": []}
+    huge = "A" * 5000 + "TAIL_MARKER"
+    out = build_user_prompt(company_name="ACME", raw=raw, samples=[huge])
+    assert "TAIL_MARKER" not in out
+    assert "A" * 100 in out

@@ -18,6 +18,7 @@ dependencies = [
     "httpx>=0.28.1",
     "pydantic>=2.13.3",
     "pydantic-settings>=2.14.0",
+    "pypdf>=6.10.2",
     "python-docx>=1.2.0",
     "python-dotenv>=1.2.2",
     "structlog>=25.5.0",

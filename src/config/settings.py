@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # Anthropic (재무 분석 Agent)
     anthropic_api_key: str = Field(default="")
     anthropic_model: str = Field(default="claude-haiku-4-5-20251001")
+    financial_samples_blob_prefix: str = Field(
+        default="templates/financial_samples/",
+        description="재무 분석 샘플 (.docx, .pdf) Blob prefix. startup 1회 로드 후 메모리 캐시",
+    )
 
     # 보고서 작성 Agent
     report_model: str = Field(default="claude-sonnet-4-6")
