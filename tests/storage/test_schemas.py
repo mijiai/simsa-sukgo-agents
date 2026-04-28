@@ -80,9 +80,15 @@ def test_monitoring_snapshot_run_date_is_date() -> None:
         company_id="c",
         run_date=date(2026, 4, 26),
         risk_level=RiskLevel.HIGH,
+        risk_score=72.5,
+        analysis_job_id="job-1",
     )
-    assert snap.news_negative_count == 0
+    assert snap.run_date == date(2026, 4, 26)
+    assert snap.risk_score == 72.5
+    assert snap.analysis_job_id == "job-1"
+    assert snap.news_count == 0
     assert snap.lawsuit_count == 0
+    assert snap.summary == ""
 
 
 def test_alert_history_status_enum() -> None:

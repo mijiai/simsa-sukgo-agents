@@ -1,15 +1,19 @@
 from fastmcp import FastMCP
 
+from src.agents.collector.factory import get_naver_news_client
+from src.agents.financial.factory import get_anthropic_client
+from src.agents.monitoring.run_service import monitor_run_now_service
 from src.agents.monitoring.schemas import (
     MonitorDeregisterRequest,
     MonitorRegisterRequest,
+    MonitorRunNowRequest,
 )
 from src.agents.monitoring.service import (
     monitor_deregister_service,
     monitor_list_service,
     monitor_register_service,
 )
-from src.storage.factory import get_table_store
+from src.storage.factory import get_blob_store, get_table_store
 
 
 def register_monitoring_tools(mcp: FastMCP) -> None:
@@ -80,4 +84,46 @@ def register_monitoring_tools(mcp: FastMCP) -> None:
                             last_risk_level?}
         """
         response = await monitor_list_service(get_table_store())
+        return response.model_dump()
+
+    @mcp.tool()
+    async def monitor_run_now(company_id: str) -> dict:
+        """
+        등록된 모니터링 대상에 대해 즉시 재분석 (수동 트리거 / 분기 cron 도 같은 함수 호출).
+
+        동작:
+        - MonitoringTargets 에서 active 한 target 인지 검증
+        - 새 AnalysisJob 생성 (user_id="system:monitoring")
+        - collect_company_data_service → analyze_financials_service 순차 실행 (보고서는 생성 X)
+        - analyze 결과 + raw 데이터를 합쳐 monitoring/{company_id}/{YYYYMMDD}/snapshot.json 에 저장
+        - MonitoringSnapshots Table 에 lightweight row INSERT (UI 목록 표시용)
+        - MonitoringTarget.last_run_at, last_risk_level 갱신
+        - 응답에 위험 등급 변동 여부(risk_changed) 포함
+
+        Gmail 알림은 별도 PR 에서 추가 — 이 단계는 snapshot 저장까지만.
+
+        입력:
+        - company_id
+
+        출력:
+        - company_id, company_name, status="snapshot_done"
+        - analysis_job_id: 이번 실행으로 생성된 AnalysisJob.id (드릴다운 용)
+        - run_date, risk_level, risk_score
+        - previous_risk_level, risk_changed: 이전 스냅샷 대비 변동 여부
+        - snapshot_blob_path: 상세 데이터 Blob 경로
+
+        실패 시:
+        - 대상 미등록: EntityNotFoundError
+        - 대상 비활성: MonitoringTargetInactiveError
+        - collect/analyze 실패: 해당 service 가 AnalysisJobs/AgentStatus 를 failed 로
+          표시 후 예외 전파
+        """
+        request = MonitorRunNowRequest(company_id=company_id)
+        response = await monitor_run_now_service(
+            request,
+            get_blob_store(),
+            get_table_store(),
+            get_naver_news_client(),
+            get_anthropic_client(),
+        )
         return response.model_dump()

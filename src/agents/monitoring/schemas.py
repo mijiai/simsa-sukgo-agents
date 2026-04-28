@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -42,3 +42,20 @@ class MonitorTargetListItem(BaseModel):
 class MonitorListResponse(BaseModel):
     count: int
     targets: list[MonitorTargetListItem] = Field(default_factory=list)
+
+
+class MonitorRunNowRequest(BaseModel):
+    company_id: str = Field(min_length=1, description="MonitoringTargets 에 등록된 company_id")
+
+
+class MonitorRunNowResponse(BaseModel):
+    company_id: str
+    company_name: str
+    analysis_job_id: str = Field(description="이번 모니터링 실행으로 생성된 새 AnalysisJob.id")
+    run_date: date
+    risk_level: RiskLevel
+    risk_score: float
+    previous_risk_level: RiskLevel | None = None
+    risk_changed: bool = Field(description="이전 스냅샷 대비 위험 등급 변화 여부")
+    snapshot_blob_path: str
+    status: Literal["snapshot_done"] = "snapshot_done"

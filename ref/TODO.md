@@ -255,17 +255,17 @@ Claude.ai
 - [ ] 4-2-3. FastMCP `lifespan` 훅에 스케줄러 시작/종료 등록
 - [ ] 4-2-4. 전체 모니터링 대상 순회 배치 Job 함수 구현
 - [ ] 4-2-5. 배치 실행 시작 · 완료 로그 `MonitoringRunLogs` 테이블 기록
-- [ ] 4-2-6. 수동 트리거 Tool 구현 (`monitor_run_now(company_id: str | None)`)
+- [x] 4-2-6. 수동 트리거 Tool 구현 (`monitor_run_now(company_id)`) — collect+analyze 재실행 + snapshot 저장. 단일 company_id 만 지원 (전체 순회는 4-2-4 PR 4)
 
 ### 4-3. 위험 탐지 로직
 
-- [ ] 4-3-1. 신규 뉴스 · 소송 데이터 수집 (1-2, 1-3 모듈 재활용)
-- [ ] 4-3-2. `MonitoringSnapshots`에서 이전 스냅샷 조회 및 변화 감지 로직
-  - 소송 신규 등록, 부정 뉴스 급증, 위험 키워드 등장 여부 판별
-- [ ] 4-3-3. 위험 등급 재산출 및 등급 상향 여부 판별
-  - 정상 → 주의 / 경고 / 위험 전환 시 알림 트리거
-- [ ] 4-3-4. 모니터링 상세 원시 데이터 → `monitoring/{company_id}/{YYYYMMDD}/snapshot.json` Blob PUT
-- [ ] 4-3-5. 신규 스냅샷 `MonitoringSnapshots` 테이블 저장 (`snapshot_blob_path` 필드에 위 Blob 경로 기록)
+- [x] 4-3-1. 신규 뉴스 데이터 수집 — 1-2 (Naver) 모듈 재활용. 소송은 1-3 보류로 미수행
+- [~] 4-3-2. ~~`MonitoringSnapshots`에서 이전 스냅샷 조회 및 변화 감지 로직~~
+  → MonitoringTarget.last_risk_level 와 비교만 수행 (단순 등급 변화). 정량 점수 임계치 / 키워드 다이프 같은 정교한 비교는 PR 3 (`feature/monitor-detection-and-gmail`).
+- [~] 4-3-3. ~~위험 등급 재산출 및 등급 상향 여부 판별~~
+  → analyzer 가 매 실행마다 risk_level 재산출. risk_changed 플래그만 기록. 알림 트리거는 PR 3.
+- [x] 4-3-4. 모니터링 상세 원시 데이터 → `monitoring/{company_id}/{YYYYMMDD}/snapshot.json` Blob PUT
+- [x] 4-3-5. 신규 스냅샷 `MonitoringSnapshots` 테이블 저장 (`snapshot_blob_path` + `analysis_job_id` 필드 추가)
 
 ### 4-4. Gmail 알림 연동
 
@@ -281,8 +281,8 @@ Claude.ai
 - [x] 4-5-1. `monitor_register` Tool 등록 및 description 작성
 - [x] 4-5-2. `monitor_deregister` Tool 등록
 - [x] 4-5-3. `monitor_list` Tool 등록
-- [ ] 4-5-4. `monitor_run_now` Tool 등록 (수동 즉시 실행) — PR 2 (`feature/monitor-run-now`)
-- [~] 4-5-5. Tool 단위 테스트 — register/deregister/list 7개 케이스 완료. run_now 테스트는 PR 2.
+- [x] 4-5-4. `monitor_run_now` Tool 등록 (수동 즉시 실행) — PR 2 완료
+- [~] 4-5-5. Tool 단위 테스트 — register/deregister/list/run_now 15개 케이스. Gmail 관련 mock 은 PR 3 에서.
 
 ---
 

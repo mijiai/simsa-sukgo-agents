@@ -128,8 +128,11 @@ class MonitoringSnapshot(BaseModel):
     company_id: str
     run_date: date
     risk_level: RiskLevel
-    news_negative_count: int = 0
+    risk_score: float = Field(ge=0.0, le=100.0)
+    analysis_job_id: str
+    news_count: int = 0
     lawsuit_count: int = 0
+    summary: str = ""
     key_signals: str = ""
     snapshot_blob_path: str | None = None
 
