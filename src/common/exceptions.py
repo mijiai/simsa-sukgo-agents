@@ -20,6 +20,11 @@ class AnthropicApiError(ExternalApiError):
         super().__init__("anthropic", message, status_code=status_code)
 
 
+class GmailApiError(ExternalApiError):
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__("gmail", message, status_code=status_code)
+
+
 class StorageError(SimsaSukgoError):
     pass
 
