@@ -9,6 +9,7 @@ from src.agents.collector.factory import close_collector_clients, get_naver_news
 from src.agents.collector.tools import register_collector_tools
 from src.agents.financial.factory import close_anthropic_client, get_anthropic_client
 from src.agents.financial.tools import register_financial_tools
+from src.agents.monitoring.tools import register_monitoring_tools
 from src.agents.report.factory import (
     close_report_anthropic_client,
     get_report_anthropic_client,
@@ -103,5 +104,6 @@ def create_mcp_server() -> FastMCP:
     register_collector_tools(mcp)
     register_financial_tools(mcp)
     register_report_tools(mcp)
+    register_monitoring_tools(mcp)
 
     return mcp
