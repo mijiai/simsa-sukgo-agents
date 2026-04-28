@@ -240,21 +240,11 @@ Claude.ai
 
 ### 4-1. 모니터링 대상 관리 (Azure Table Storage)
 
-- [ ] 4-1-1. **Azure Table Storage** 테이블 설계
-  - `MonitoringTargets` : PartitionKey=`"company"`, RowKey=기업ID
-    → `company_name`, `recipient_email`, `registered_at`, `is_active`
-  - `MonitoringSnapshots` : PartitionKey=기업ID, RowKey=실행일자
-    → `risk_level`, `news_summary`, `lawsuit_count`, `snapshot_json`
-  - `AlertHistory` : PartitionKey=기업ID, RowKey=발송일시
-    → `risk_level`, `sent_to`, `status`
-  - `SchedulerState` : 스케줄러 마지막 실행 시각 저장 (컨테이너 재시작 복원용)
-  - `MonitoringRunLogs` : 배치 실행 이력
-- [ ] 4-1-2. Azure Table Storage CRUD 헬퍼 함수 작성 (`/storage/table_store.py`)
-- [ ] 4-1-3. 대상 기업 등록 / 해제 Tool 구현
-  - `monitor_register(company_name, company_id, recipient_email, origin_job_id)`
-    - `origin_job_id` : 최초 보고서를 생성한 job_id → `MonitoringTargets` 테이블의 `origin_job_id` 필드에 저장
-  - `monitor_deregister(company_id)`
-  - `monitor_list()`
+- [x] 4-1-1. **Azure Table Storage** 테이블 설계 — Step 1-1-2 에서 4개 테이블 모두 완료 (`MonitoringTargets`, `MonitoringSnapshots`, `AlertHistory`, `SchedulerState`). `MonitoringRunLogs` 는 별도 도입하지 않고 `AgentStatus` + 로그로 대체
+- [x] 4-1-2. Azure Table Storage CRUD 헬퍼 — Step 1-1-2 에서 모든 Repo 완성
+- [x] 4-1-3. 대상 기업 등록/해제/조회 Tool 구현 — `monitor_register` / `monitor_deregister` / `monitor_list`
+  - register 시 Companies 존재 검증, 동일 company_id 재등록은 upsert
+  - deregister 는 soft delete (`is_active=False`) — 과거 스냅샷·알림 이력 보존
 
 ### 4-2. 배치 스케줄러 구성
 
@@ -288,11 +278,11 @@ Claude.ai
 
 ### 4-5. FastMCP Tool 등록 — 모니터링
 
-- [ ] 4-5-1. `monitor_register` Tool 등록 및 description 작성
-- [ ] 4-5-2. `monitor_deregister` Tool 등록
-- [ ] 4-5-3. `monitor_list` Tool 등록
-- [ ] 4-5-4. `monitor_run_now` Tool 등록 (수동 즉시 실행)
-- [ ] 4-5-5. Tool 단위 테스트 작성 (Azure Table Storage mock + Gmail mock)
+- [x] 4-5-1. `monitor_register` Tool 등록 및 description 작성
+- [x] 4-5-2. `monitor_deregister` Tool 등록
+- [x] 4-5-3. `monitor_list` Tool 등록
+- [ ] 4-5-4. `monitor_run_now` Tool 등록 (수동 즉시 실행) — PR 2 (`feature/monitor-run-now`)
+- [~] 4-5-5. Tool 단위 테스트 — register/deregister/list 7개 케이스 완료. run_now 테스트는 PR 2.
 
 ---
 
