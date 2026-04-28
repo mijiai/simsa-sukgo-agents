@@ -7,14 +7,17 @@ from src.agents.collector.schemas import CollectRequest
 from src.agents.collector.service import collect_company_data_service
 from src.agents.financial.schemas import AnalyzeRequest
 from src.agents.financial.service import analyze_financials_service
+from src.agents.monitoring.alerter import maybe_send_alert
+from src.agents.monitoring.gmail_client import GmailClient
 from src.agents.monitoring.schemas import (
     MonitorRunNowRequest,
     MonitorRunNowResponse,
 )
 from src.common.anthropic_client import AnthropicClient
 from src.common.constants import RiskLevel
-from src.common.exceptions import EntityNotFoundError, SimsaSukgoError
+from src.common.exceptions import EntityNotFoundError, GmailApiError, SimsaSukgoError
 from src.config.logging import get_logger
+from src.config.settings import Settings
 from src.storage.blob_store import BlobStore
 from src.storage.schemas import (
     AgentName,
@@ -53,11 +56,15 @@ async def monitor_run_now_service(
     tables: TableStore,
     naver: NaverNewsClient,
     anthropic: AnthropicClient,
+    *,
+    gmail: GmailClient | None = None,
+    settings: Settings | None = None,
 ) -> MonitorRunNowResponse:
     """
     Re-run collect + analyze for a registered monitoring target, persist a
-    snapshot. Skips report generation (monitoring is lightweight check, not
-    full report). Alert sending is done in PR 3.
+    snapshot, and (when gmail+settings injected) optionally send an alert.
+
+    Skips report generation (monitoring is lightweight check, not full report).
     """
     # 1. Validate target exists + active
     try:
@@ -179,23 +186,47 @@ async def monitor_run_now_service(
 
     # 7. Insert MonitoringSnapshots row (UI list-view metadata)
     key_signals = " / ".join(key_risk_factors[:_MAX_KEY_SIGNALS])
-    await tables.monitoring_snapshots.insert(
-        MonitoringSnapshot(
-            company_id=request.company_id,
-            run_date=finished_at.date(),
-            risk_level=risk_level,
-            risk_score=risk_score,
-            analysis_job_id=job_id,
-            news_count=news_count,
-            lawsuit_count=lawsuit_count,
-            summary=summary,
-            key_signals=key_signals,
-            snapshot_blob_path=snapshot_path,
-        )
+    snapshot_row = MonitoringSnapshot(
+        company_id=request.company_id,
+        run_date=finished_at.date(),
+        risk_level=risk_level,
+        risk_score=risk_score,
+        analysis_job_id=job_id,
+        news_count=news_count,
+        lawsuit_count=lawsuit_count,
+        summary=summary,
+        key_signals=key_signals,
+        snapshot_blob_path=snapshot_path,
     )
+    await tables.monitoring_snapshots.insert(snapshot_row)
 
     # 8. Update MonitoringTarget last_run_at + last_risk_level
     await tables.monitoring_targets.update_after_run(request.company_id, finished_at, risk_level)
+
+    # 9. (옵션) 알림 발송 — gmail/settings 가 주입된 경우만. 발송 실패는 로그만 남기고
+    #    snapshot 자체 동작은 성공으로 보존.
+    if gmail is not None and settings is not None:
+        try:
+            await maybe_send_alert(
+                tables=tables,
+                gmail=gmail,
+                company_name=target.company_name,
+                recipient_email=target.recipient_email,
+                snapshot=snapshot_row,
+                previous_level=previous_risk_level,
+                key_risk_factors=key_risk_factors,
+                summary=result.get("summary") or "",
+                min_level=RiskLevel(settings.alert_min_risk_level),
+                dedup_days=settings.alert_dedup_days,
+                first_run_send=settings.alert_first_run_send,
+                now=finished_at,
+            )
+        except GmailApiError as exc:
+            logger.warning(
+                "monitor.run_now.alert_send_failed",
+                company_id=request.company_id,
+                error=str(exc),
+            )
 
     logger.info(
         "monitor.run_now.done",

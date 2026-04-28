@@ -260,21 +260,21 @@ Claude.ai
 ### 4-3. 위험 탐지 로직
 
 - [x] 4-3-1. 신규 뉴스 데이터 수집 — 1-2 (Naver) 모듈 재활용. 소송은 1-3 보류로 미수행
-- [~] 4-3-2. ~~`MonitoringSnapshots`에서 이전 스냅샷 조회 및 변화 감지 로직~~
-  → MonitoringTarget.last_risk_level 와 비교만 수행 (단순 등급 변화). 정량 점수 임계치 / 키워드 다이프 같은 정교한 비교는 PR 3 (`feature/monitor-detection-and-gmail`).
-- [~] 4-3-3. ~~위험 등급 재산출 및 등급 상향 여부 판별~~
-  → analyzer 가 매 실행마다 risk_level 재산출. risk_changed 플래그만 기록. 알림 트리거는 PR 3.
+- [x] 4-3-2. 이전 스냅샷 대비 변화 감지 — MonitoringTarget.last_risk_level 와 RiskLevel rank 비교 (`alerter.should_alert`). 키워드 다이프 / 점수 임계치는 PoC 범위 외 (보류 — 사용자 의도 "MEDIUM 이상 *상승* 진입 시" 단순 규칙 채택)
+- [x] 4-3-3. 위험 등급 상향 판별 → 알림 트리거 — alerter 가 should_alert 통과 시 maybe_send_alert 발송
 - [x] 4-3-4. 모니터링 상세 원시 데이터 → `monitoring/{company_id}/{YYYYMMDD}/snapshot.json` Blob PUT
 - [x] 4-3-5. 신규 스냅샷 `MonitoringSnapshots` 테이블 저장 (`snapshot_blob_path` + `analysis_job_id` 필드 추가)
 
 ### 4-4. Gmail 알림 연동
 
-- [ ] 4-4-1. Gmail API OAuth2 자격증명 JSON → **Azure Blob Storage(`credentials/`)에 저장**
-  - 런타임에 Blob에서 로드 후 인증 처리
-- [ ] 4-4-2. 알림 이메일 HTML 템플릿 작성 (기업명, 위험 등급, 주요 변화 내역, 확인 권고)
-- [ ] 4-4-3. `send_alert_email(recipient, company_name, risk_level, summary)` 함수 구현
-- [ ] 4-4-4. 발송 이력 `AlertHistory` 테이블 저장 — 중복 발송 방지 (3개월 내 동일 등급 발송 차단)
-- [ ] 4-4-5. 이메일 발송 실패 시 재시도 및 에러 로그 기록
+- [x] 4-4-1. Gmail OAuth2 자격증명 JSON → Azure Blob `credentials/gmail_oauth.json`
+  - 런타임에 Blob 에서 로드, google-auth 가 refresh_token 자동 갱신
+  - 1회용 consent 스크립트 추가 (`scripts/gmail_oauth_consent.py`) — 사용자가 한 번만 실행해서 Blob 업로드
+- [x] 4-4-2. HTML 알림 이메일 템플릿 (`alerter.render_alert_html`) — 위험 등급 색상 / 요약 / 핵심 위험 요인 / 드릴다운 정보 (analysis_job_id, snapshot_blob_path) + plain text fallback
+- [x] 4-4-3. `GmailClient.send_html(recipient, subject, html_body, text_body)` 구현 (gmail.send scope 만)
+- [x] 4-4-4. AlertHistory dedup — `is_duplicate_alert` 가 3개월(default) 내 SENT 이력 검사. 중복이면 발송 skip + 로그
+- [~] 4-4-5. ~~이메일 발송 실패 시 재시도 및 에러 로그 기록~~
+  → 현재는 GmailApiError 발생 시 AlertHistory 에 FAILED 기록 + 예외 전파. 자동 재시도는 PoC 범위 외 (운영 시 별도 retry 큐 도입 검토)
 
 ### 4-5. FastMCP Tool 등록 — 모니터링
 

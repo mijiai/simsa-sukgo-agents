@@ -39,6 +39,24 @@ class Settings(BaseSettings):
 
     # Gmail
     gmail_credentials_blob_path: str = Field(default="credentials/gmail_oauth.json")
+    gmail_sender_address: str = Field(
+        default="",
+        description="From: 표시. 빈 값이면 OAuth 계정 자체 사용",
+    )
+
+    # 모니터링 알림 (Step 4)
+    alert_min_risk_level: str = Field(
+        default="MEDIUM",
+        description="이 등급 이상으로 *상승* 진입 시에만 알림. LOW/MEDIUM/HIGH/CRITICAL",
+    )
+    alert_dedup_days: int = Field(
+        default=90,
+        description="같은 (company_id, risk_level) 알림이 N일 내 발송됐으면 중복 차단",
+    )
+    alert_first_run_send: bool = Field(
+        default=True,
+        description="첫 실행에서 alert_min_risk_level 이상이면 즉시 발송",
+    )
 
     # MCP 서버
     mcp_host: str = Field(default="0.0.0.0")
