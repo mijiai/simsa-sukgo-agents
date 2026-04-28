@@ -9,6 +9,13 @@ from src.agents.collector.factory import close_collector_clients, get_naver_news
 from src.agents.collector.tools import register_collector_tools
 from src.agents.financial.factory import close_anthropic_client, get_anthropic_client
 from src.agents.financial.tools import register_financial_tools
+from src.agents.monitoring.factory import get_gmail_client, get_scheduler, set_scheduler
+from src.agents.monitoring.scheduler import (
+    needs_catchup,
+    schedule_catchup,
+    setup_scheduler,
+    shutdown_scheduler,
+)
 from src.agents.monitoring.tools import register_monitoring_tools
 from src.agents.report.factory import (
     close_report_anthropic_client,
@@ -76,11 +83,43 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
     else:
         logger.warning("anthropic.skipped_no_api_key")
     # TODO(step-1): AgentStatus 테이블에서 status=running 잔존 Job 감지 → 재개
-    # TODO(step-4): APScheduler 시작 등록
+    # 모니터링 스케줄러 시작 (storage + naver + anthropic 모두 준비됐을 때만)
+    if (
+        settings.monitoring_scheduler_enabled
+        and settings.azure_storage_connection_string
+        and settings.naver_client_id
+        and settings.naver_client_secret
+        and settings.anthropic_api_key
+    ):
+        scheduler = setup_scheduler(
+            blob=get_blob_store(),
+            tables=get_table_store(),
+            naver=get_naver_news_client(),
+            anthropic=get_anthropic_client(),
+            gmail=get_gmail_client(),
+            settings=settings,
+        )
+        set_scheduler(scheduler)
+        if await needs_catchup(
+            get_table_store(),
+            threshold_days=settings.monitoring_catchup_threshold_days,
+        ):
+            await schedule_catchup(
+                scheduler,
+                blob=get_blob_store(),
+                tables=get_table_store(),
+                naver=get_naver_news_client(),
+                anthropic=get_anthropic_client(),
+                gmail=get_gmail_client(),
+                settings=settings,
+            )
+    else:
+        logger.warning("monitor.scheduler.skipped", enabled=settings.monitoring_scheduler_enabled)
     try:
         yield
     finally:
-        # TODO(step-4): APScheduler graceful shutdown
+        shutdown_scheduler(get_scheduler())
+        set_scheduler(None)
         await close_collector_clients()
         await close_anthropic_client()
         await close_report_anthropic_client()

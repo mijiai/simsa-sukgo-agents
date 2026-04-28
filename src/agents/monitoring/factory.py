@@ -1,8 +1,11 @@
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
 from src.agents.monitoring.gmail_client import GmailClient
 from src.config.settings import get_settings
 from src.storage.factory import get_blob_store
 
 _gmail_client: GmailClient | None = None
+_scheduler: AsyncIOScheduler | None = None
 
 
 def get_gmail_client() -> GmailClient:
@@ -20,3 +23,12 @@ def get_gmail_client() -> GmailClient:
 def reset_gmail_client_for_tests() -> None:
     global _gmail_client
     _gmail_client = None
+
+
+def set_scheduler(scheduler: AsyncIOScheduler | None) -> None:
+    global _scheduler
+    _scheduler = scheduler
+
+
+def get_scheduler() -> AsyncIOScheduler | None:
+    return _scheduler

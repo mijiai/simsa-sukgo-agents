@@ -248,13 +248,12 @@ Claude.ai
 
 ### 4-2. 배치 스케줄러 구성
 
-- [ ] 4-2-1. APScheduler 설정 (3개월 주기 Cron : `0 9 1 */3 *`)
-- [ ] 4-2-2. **컨테이너 재시작 내성** 설계
-  - 서버 기동 시 `SchedulerState` 테이블에서 마지막 실행 시각 조회
-  - 마지막 실행 후 3개월 경과 시 즉시 보상 실행 트리거
-- [ ] 4-2-3. FastMCP `lifespan` 훅에 스케줄러 시작/종료 등록
-- [ ] 4-2-4. 전체 모니터링 대상 순회 배치 Job 함수 구현
-- [ ] 4-2-5. 배치 실행 시작 · 완료 로그 `MonitoringRunLogs` 테이블 기록
+- [x] 4-2-1. APScheduler `AsyncIOScheduler` + `CronTrigger.from_crontab(MONITORING_BATCH_CRON)` (default `0 9 1 */3 *`, env override 가능)
+- [x] 4-2-2. 컨테이너 재시작 내성 — `needs_catchup` 가 `SchedulerState.last_run_at` 와 `MONITORING_CATCHUP_THRESHOLD_DAYS` 비교 → 초과 시 lifespan 에서 즉시 1회 보상 실행 (`schedule_catchup` date trigger)
+- [x] 4-2-3. FastMCP lifespan: `setup_scheduler` 시작 + `shutdown_scheduler` 종료 등록. 시크릿 미설정 시 자동 skip
+- [x] 4-2-4. `run_monitoring_batch` — `list_active()` 순회 → 각 target 에 monitor_run_now_service 호출. 한 target 실패해도 다른 target 계속 진행 (개별 try/except + 카운트)
+- [~] 4-2-5. ~~배치 실행 시작 · 완료 로그 `MonitoringRunLogs` 테이블 기록~~
+  → 별도 Table 신설하지 않고 `monitor.batch.start` / `monitor.batch.done` 구조화 로그 + `SchedulerState.run_count` 누적으로 대체. 배치 이력 별도 조회 필요해지면 후속 도입
 - [x] 4-2-6. 수동 트리거 Tool 구현 (`monitor_run_now(company_id)`) — collect+analyze 재실행 + snapshot 저장. 단일 company_id 만 지원 (전체 순회는 4-2-4 PR 4)
 
 ### 4-3. 위험 탐지 로직
