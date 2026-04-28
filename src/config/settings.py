@@ -58,6 +58,20 @@ class Settings(BaseSettings):
         description="첫 실행에서 alert_min_risk_level 이상이면 즉시 발송",
     )
 
+    # 모니터링 스케줄러 (Step 4-2)
+    monitoring_batch_cron: str = Field(
+        default="0 9 1 */3 *",
+        description="UTC 기준 cron 표현식. default: 매 3개월 1일 09:00 UTC",
+    )
+    monitoring_catchup_threshold_days: int = Field(
+        default=90,
+        description="컨테이너 재시작 시 마지막 배치가 이만큼 지났으면 즉시 보상 실행",
+    )
+    monitoring_scheduler_enabled: bool = Field(
+        default=True,
+        description="False 면 lifespan 에서 scheduler 시작 skip (테스트/긴급 정지 용)",
+    )
+
     # MCP 서버
     mcp_host: str = Field(default="0.0.0.0")
     mcp_port: int = Field(default=8000)
