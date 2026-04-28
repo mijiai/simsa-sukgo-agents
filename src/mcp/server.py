@@ -8,6 +8,7 @@ from starlette.responses import JSONResponse
 from src.agents.collector.factory import close_collector_clients, get_naver_news_client
 from src.agents.collector.tools import register_collector_tools
 from src.agents.financial.factory import close_anthropic_client, get_anthropic_client
+from src.agents.financial.templates import load_financial_samples
 from src.agents.financial.tools import register_financial_tools
 from src.agents.monitoring.factory import get_gmail_client, get_scheduler, set_scheduler
 from src.agents.monitoring.scheduler import (
@@ -80,6 +81,17 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
                     )
             except Exception as exc:
                 logger.warning("report.templates.load_failed", error=str(exc))
+            try:
+                fin_samples = await load_financial_samples(
+                    get_blob_store(), settings.financial_samples_blob_prefix
+                )
+                if not fin_samples:
+                    logger.warning(
+                        "financial.samples.empty_at_startup",
+                        prefix=settings.financial_samples_blob_prefix,
+                    )
+            except Exception as exc:
+                logger.warning("financial.samples.load_failed", error=str(exc))
     else:
         logger.warning("anthropic.skipped_no_api_key")
     # TODO(step-1): AgentStatus 테이블에서 status=running 잔존 Job 감지 → 재개

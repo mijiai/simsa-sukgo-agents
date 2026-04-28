@@ -9,6 +9,7 @@ from src.agents.financial.schemas import (
     AnalyzeResponse,
     ClaudeJudgment,
 )
+from src.agents.financial.templates import get_cached_samples
 from src.common.anthropic_client import AnthropicClient
 from src.config.logging import get_logger
 from src.storage.blob_store import BlobStore
@@ -47,7 +48,11 @@ async def analyze_financials_service(
         company_name = raw.get("company_name", "")
         company_id = raw.get("company_id")
 
-        user_prompt = build_user_prompt(company_name=company_name, raw=raw)
+        samples = get_cached_samples()
+        if not samples:
+            logger.warning("analyze.samples.empty", job_id=request.job_id)
+
+        user_prompt = build_user_prompt(company_name=company_name, raw=raw, samples=samples)
         judgment_dict = await anthropic.complete_json(system=SYSTEM_PROMPT, user=user_prompt)
         judgment = ClaudeJudgment.model_validate(judgment_dict)
 

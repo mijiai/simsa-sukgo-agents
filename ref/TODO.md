@@ -152,12 +152,16 @@ Claude.ai
 
 ### 2-1. Azure AI Search 기반 학습 DB 구성
 
-- [ ] 2-1-1. Azure AI Search 인덱스 스키마 설계
-  - 필드 : `id`, `company_type`, `content`, `embedding`, `source_type`, `year`
-  - 업종별 벤치마크 · 재무 분석 예시 · 판례 문서 대상
-- [ ] 2-1-2. 임베딩 생성 파이프라인 구현 (Azure OpenAI Embeddings 또는 외부 모델)
-- [ ] 2-1-3. 더미 재무 분석 예시 문서 청킹 및 Azure AI Search 색인 적재 스크립트 작성
-- [ ] 2-1-4. 유사 사례 검색 함수 구현 (`azure-search-documents` SDK, hybrid search)
+> **Blob 캐시로 대체** (3-1-2 보고서 패턴과 동일). AI Search Basic tier 월 $75 비용 + 임베딩
+> 파이프라인 운영 부담 vs 샘플 수십 개 이내 PoC 규모를 고려한 결정. 샘플 50+ 또는 회사 특성별
+> 검색이 필요해지면 그때 AI Search 마이그레이션.
+
+- [~] 2-1-1. ~~Azure AI Search 인덱스 스키마 설계~~
+  → `templates/financial_samples/*.{docx,pdf}` Blob prefix 로 대체. startup 1회 로드 → 메모리 캐시.
+- [~] 2-1-2. ~~임베딩 생성 파이프라인 구현~~ → 동일 사유 보류.
+- [~] 2-1-3. ~~더미 재무 분석 예시 문서 청킹 및 색인 적재 스크립트~~
+  → 청킹 없이 전체 텍스트 inject (샘플당 4000자 truncate). 색인 적재 대신 Blob 업로드만.
+- [~] 2-1-4. ~~유사 사례 검색 함수 구현~~ → 검색 없이 모든 샘플 일괄 inject.
 
 ### 2-2. 분석 지침(Prompt) 설계
 
@@ -179,8 +183,7 @@ Claude.ai
   → 현재는 `raw.json` GET 만 수행. `FinancialRaw` query 는 1-1-4 더미 데이터 보류로 미수행.
 - [~] 2-3-4. ~~재무 지표 계산 및 업종 벤치마크 비교 로직 구현~~
   → 2-2-2 와 동일 사유 보류 (재무 데이터 없음).
-- [~] 2-3-5. ~~Azure AI Search 유사 사례 검색 결과 컨텍스트 주입~~
-  → 2-1 (Azure AI Search 인덱스 구축) 미진행. 별도 PR.
+- [x] 2-3-5. 참고 샘플 컨텍스트 주입 — `financial/templates.py` 가 startup 시 Blob 에서 `.docx`/`.pdf` 일괄 로드 → `build_user_prompt(samples=...)` 로 inject. 2-1 결정에 따라 AI Search 가 아닌 Blob 캐시 패턴.
 - [x] 2-3-6. 분석 인사이트 생성 (Claude API 호출, `claude-haiku-4-5-20251001` default)
 - [~] 2-3-7. ~~분석 결과 → `FinancialMetrics` Table INSERT (PK=job_id, RK=base_year)~~
   → 재무 지표 계산이 보류라 INSERT 할 데이터가 없음. 더미 재무 데이터 + 지표 계산 후 별도 PR.

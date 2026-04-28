@@ -32,6 +32,11 @@ SYSTEM_PROMPT = """당신은 한국 시중은행의 기업여신 심사 분석�
 
 _MAX_NEWS_IN_PROMPT = 30
 _DESCRIPTION_TRUNCATE = 200
+_SAMPLE_TRUNCATE = 4000
+
+_NO_SAMPLES_NOTICE = (
+    "(참고용 재무 분석 샘플이 로드되지 않았습니다. 일반적 신용 분석 관점으로 판단하세요.)"
+)
 
 
 def _format_news(news: list[dict[str, Any]]) -> str:
@@ -46,7 +51,22 @@ def _format_news(news: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def build_user_prompt(*, company_name: str, raw: dict[str, Any]) -> str:
+def _format_samples(samples: list[str]) -> str:
+    if not samples:
+        return _NO_SAMPLES_NOTICE
+    parts = []
+    for i, sample in enumerate(samples, start=1):
+        truncated = sample[:_SAMPLE_TRUNCATE]
+        parts.append(f"=== 샘플 {i} ===\n{truncated}")
+    return "\n\n".join(parts)
+
+
+def build_user_prompt(
+    *,
+    company_name: str,
+    raw: dict[str, Any],
+    samples: list[str] | None = None,
+) -> str:
     news = raw.get("news") or []
     lawsuits = raw.get("lawsuits") or []
     files = raw.get("uploaded_files") or []
@@ -65,6 +85,9 @@ def build_user_prompt(*, company_name: str, raw: dict[str, Any]) -> str:
 
 [소송]
 {len(lawsuits)}건
+
+[참고용 재무 분석 샘플 — 톤·관점·판단 기준 참고]
+{_format_samples(samples or [])}
 
 위 자료를 분석하여 지정된 JSON 스키마로만 응답하세요.
 """
