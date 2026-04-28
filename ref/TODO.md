@@ -402,17 +402,16 @@ Claude.ai
 - [ ] 7-2-7. `GET /health` 엔드포인트로 Container Apps Liveness Probe 설정 — ACA 기본 probe 사용 (별도 설정은 옵션)
 - [ ] 7-2-8. 배포 후 로그 스트림 확인 — 사용자 실 배포 후 `az containerapp logs show -n simsasukgo-mcp -g SIMSASUKGO-GR --follow` 로 검증
 
-### 7-3. CI/CD 파이프라인 구성 (선택)
+### 7-3. CI/CD 파이프라인 구성
 
-- [ ] 7-3-1. GitHub Actions 워크플로우 작성 (`.github/workflows/deploy.yml`)
-  ```
-  push to main
-    → pytest (단위 테스트)
-    → docker build & push to ACR
-    → az containerapp update (rolling update)
-  ```
-- [ ] 7-3-2. ACR Service Principal 또는 Workload Identity 설정 (GitHub Secrets 등록)
-- [ ] 7-3-3. 배포 후 자동 smoke test (SSE 연결 + `monitor_list` Tool 호출 확인)
+- [x] 7-3-1. GitHub Actions 워크플로우 (`.github/workflows/ci.yml`) — 단일 파일 2 job
+  - `test` (모든 push/PR): uv + Python 3.12 + ruff + pytest
+  - `deploy` (push to main 만): az login → az acr build → az containerapp secret set → registry set → update --image + --set-env-vars → /health 6회 retry
+- [x] 7-3-2. Service Principal (`simsasukgo-github-cicd`, contributor on RG) + GitHub Secrets 등록 (`AZURE_CREDENTIALS`, `ANTHROPIC_API_KEY`, `AZURE_STORAGE_CONNECTION_STRING`, `NAVER_CLIENT_ID/SECRET`)
+- [x] 7-3-3. 자동 smoke test — `/health` curl 6회 × 15s retry. 실패 시 workflow 실패 처리. SSE/Tool 호출 자동 검증은 후속 (8-5)
+
+> Workload Identity (OIDC) 마이그레이션은 운영 시점에 별도 PR. PoC 단계는 SP 로 충분.
+> 배포 흐름: develop merge → main PR → main 머지 = 자동 ACR build + ACA rolling update + health check.
 
 ### 7-4. 운영 모니터링
 
