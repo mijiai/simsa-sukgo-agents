@@ -2,6 +2,7 @@ from fastmcp import FastMCP
 
 from src.agents.collector.factory import get_naver_news_client
 from src.agents.financial.factory import get_anthropic_client
+from src.agents.monitoring.factory import get_gmail_client
 from src.agents.monitoring.run_service import monitor_run_now_service
 from src.agents.monitoring.schemas import (
     MonitorDeregisterRequest,
@@ -13,6 +14,7 @@ from src.agents.monitoring.service import (
     monitor_list_service,
     monitor_register_service,
 )
+from src.config.settings import get_settings
 from src.storage.factory import get_blob_store, get_table_store
 
 
@@ -125,5 +127,7 @@ def register_monitoring_tools(mcp: FastMCP) -> None:
             get_table_store(),
             get_naver_news_client(),
             get_anthropic_client(),
+            gmail=get_gmail_client(),
+            settings=get_settings(),
         )
         return response.model_dump()
