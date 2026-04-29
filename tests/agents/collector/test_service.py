@@ -240,3 +240,57 @@ async def test_collect_unknown_company_skips_internal_db_lookup() -> None:
     assert payload["company_id"] is None
     assert payload["internal_credit_data"] is None
     assert response.has_internal_credit_data is False
+
+
+async def test_collect_attached_documents_extracts_text_into_raw_payload() -> None:
+    """첨부된 docx 1개의 본문 텍스트가 raw.json 의 attached_documents 에 들어가야 함."""
+    from io import BytesIO
+
+    from docx import Document
+
+    blob, tables, naver = _make_deps()
+
+    # 첨부 .docx 1개 + prompt.txt
+    doc = Document()
+    doc.add_paragraph("사업 개요: ACME 신사업 진출 계획")
+    buf = BytesIO()
+    doc.save(buf)
+    docx_bytes = buf.getvalue()
+
+    blob.list_prefix = AsyncMock(
+        return_value=[
+            "jobs/job-10/input/business_plan.docx",
+            "jobs/job-10/input/prompt.txt",
+        ]
+    )
+    blob.download = AsyncMock(return_value=docx_bytes)
+
+    request = CollectRequest(job_id="job-10", company_name="ACME")
+    response = await collect_company_data_service(request, blob, tables, naver)
+
+    payload = json.loads(blob.upload.call_args.args[1].decode("utf-8"))
+    assert payload["uploaded_files"] == ["business_plan.docx"]
+    assert len(payload["attached_documents"]) == 1
+    assert payload["attached_documents"][0]["filename"] == "business_plan.docx"
+    assert "사업 개요: ACME 신사업 진출 계획" in payload["attached_documents"][0]["text"]
+    assert response.attached_documents_count == 1
+
+
+async def test_collect_unsupported_attachment_in_uploaded_files_but_not_in_documents() -> None:
+    """지원 안 되는 확장자(.png)는 uploaded_files 엔 나오지만 attached_documents 엔 X."""
+    blob, tables, naver = _make_deps()
+    blob.list_prefix = AsyncMock(
+        return_value=[
+            "jobs/job-11/input/photo.png",
+            "jobs/job-11/input/prompt.txt",
+        ]
+    )
+
+    request = CollectRequest(job_id="job-11", company_name="ACME")
+    response = await collect_company_data_service(request, blob, tables, naver)
+
+    payload = json.loads(blob.upload.call_args.args[1].decode("utf-8"))
+    assert payload["uploaded_files"] == ["photo.png"]
+    assert payload["attached_documents"] == []
+    assert response.attached_documents_count == 0
+    blob.download.assert_not_called()

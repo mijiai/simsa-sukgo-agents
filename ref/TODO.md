@@ -129,8 +129,7 @@ Claude.ai
 - [x] 1-4-1. `collect_company_data(job_id: str, company_name: str)` Tool 정의 및 description 작성
   - `job_id`는 `create_analysis_job` 반환값을 그대로 수신
 - [x] 1-4-2. Agent 시작 시 `AgentStatus[collect]` status=running, `AnalysisJobs` status=collecting 업데이트
-- [~] 1-4-3. ~~`jobs/{job_id}/input/*` Blob에서 업로드 파일 다운로드 및 파싱 (PDF/DOCX/XLSX OCR 포함)~~
-  → 파일명 메타만 raw.json에 기록. 실제 파싱(PDF/DOCX/XLSX OCR)은 후속 별도 PR로 분리.
+- [x] 1-4-3. `jobs/{job_id}/input/*` Blob 업로드 파일 다운로드 및 파싱 — `src/agents/collector/attachments.py` 신설. 4개 형식 (.docx/.pdf/.xls/.xlsx) 추출 후 `raw.json` 의 `attached_documents` 필드에 채움 (파일당 8000자 truncate). 지원 안 되는 확장자는 filename 만 기록 + silent skip. 손상 파일은 warning + 빈 text. financial prompt 에 `[사용자 첨부 자료]` 섹션으로 inject. (OCR 미지원 — 텍스트 PDF 만)
 - [~] 1-4-4. ~~Companies Table 조회 · Naver News · 소송자료 병렬 호출 (`asyncio.gather`) 구현~~
   → 현재는 Companies + Naver News 만 (직렬 호출). 소송자료는 1-3 보류 상태. 병렬화는 자료 추가 후.
 - [x] 1-4-5. `Companies` Table 조회 (find_by_name, UPSERT는 `create_analysis_job`에서 수행)
