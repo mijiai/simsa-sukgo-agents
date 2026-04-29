@@ -106,10 +106,7 @@ Claude.ai
   - 인프라 테이블 : `SchedulerState`
   - 테이블 자동 생성 (idempotent), PartitionKey / RowKey 규칙은 `/ref/DB_DESIGN.md` §2 준수
 - [x] 1-1-3. Pydantic 스키마 정의 (`schemas.py`) — 각 테이블 행 ↔ 모델 매핑
-- [ ] 1-1-4. 더미/샘플 데이터셋 적재 스크립트 (`scripts/seed_dummy_data.py`)
-  - `Companies` 더미 기업 N개
-  - `FinancialRaw` 더미 재무 행 (실 고객정보 미사용)
-  - 로컬 검증용
+- [~] 1-1-4. ~~더미/샘플 데이터셋 적재 스크립트~~ → **방향 전환**: Table `FinancialRaw` 정형 적재 대신 회사별 Blob 파일 (`internal/companies/{company_id}/financial.{xlsx,xls,pdf,docx}`) + startup 메모리 캐시 (`src/agents/collector/internal_db.py`). seed 스크립트는 PR 외부에서 사용자가 직접 관리 (10개 기업 사업자번호별 Companies INSERT + Blob 업로드).
 
 ### 1-2. Naver News API 연동
 
@@ -137,8 +134,8 @@ Claude.ai
 - [~] 1-4-4. ~~Companies Table 조회 · Naver News · 소송자료 병렬 호출 (`asyncio.gather`) 구현~~
   → 현재는 Companies + Naver News 만 (직렬 호출). 소송자료는 1-3 보류 상태. 병렬화는 자료 추가 후.
 - [x] 1-4-5. `Companies` Table 조회 (find_by_name, UPSERT는 `create_analysis_job`에서 수행)
-- [~] 1-4-6. ~~수집 결과 → `FinancialRaw` Table INSERT (PartitionKey=job_id, 연도별 행)~~
-  → 1-1-4 더미 재무 데이터 보류 상태로 소스 없음. 더미 적재 후 별도 PR.
+- [~] 1-4-6. ~~수집 결과 → `FinancialRaw` Table INSERT~~
+  → 1-1-4 방향 전환에 따라 Table 적재 미수행. 대신 collector 가 `Companies.find_by_name` 매칭 시 `internal_db.get_company_data(company_id)` 로 사전 캐시된 텍스트를 raw.json 의 `internal_credit_data` 필드에 inject (회사 매칭 hit 시).
 - [x] 1-4-7. 수집 결과 전체 → `jobs/{job_id}/collect/raw.json` Blob PUT
 - [x] 1-4-8. `AgentStatus[collect]` status=done, `output_blob_path` 기록
 - [x] 1-4-9. 경량 응답 포맷 Pydantic 모델 정의 (job_id + 메타 요약만 반환)
@@ -179,14 +176,13 @@ Claude.ai
 - [x] 2-3-1. `analyze_financials(job_id: str)` Tool 정의
   - `job_id`만 수신, Blob(`jobs/{job_id}/collect/raw.json`) 에서 직접 데이터 로드
 - [x] 2-3-2. Agent 시작 시 `AgentStatus[analyze]` status=running, `AnalysisJobs` status=analyzing 업데이트
-- [~] 2-3-3. ~~`FinancialRaw` Table query (PK=job_id) + Blob `raw.json` GET → 분석 입력 구성~~
-  → 현재는 `raw.json` GET 만 수행. `FinancialRaw` query 는 1-1-4 더미 데이터 보류로 미수행.
+- [x] 2-3-3. 분석 입력 구성 — `raw.json` GET (collector 가 이미 `internal_credit_data` 필드에 사전 캐시된 회사 데이터를 inject 해둠). 별도 `FinancialRaw` query 는 1-1-4 방향 전환으로 불필요.
 - [~] 2-3-4. ~~재무 지표 계산 및 업종 벤치마크 비교 로직 구현~~
-  → 2-2-2 와 동일 사유 보류 (재무 데이터 없음).
+  → Python 단의 정형 지표 계산은 미수행. Claude (Sonnet) 가 `internal_credit_data` 텍스트에서 직접 부채비율/유동비율/추이 등을 읽고 판단. 별도 계산 로직은 향후 1-1-4 가 정형 Table 로 회귀할 경우에만 의미.
 - [x] 2-3-5. 참고 샘플 컨텍스트 주입 — `financial/templates.py` 가 startup 시 Blob 에서 `.docx`/`.pdf` 일괄 로드 → `build_user_prompt(samples=...)` 로 inject. 2-1 결정에 따라 AI Search 가 아닌 Blob 캐시 패턴.
 - [x] 2-3-6. 분석 인사이트 생성 (Claude API 호출, `claude-haiku-4-5-20251001` default)
-- [~] 2-3-7. ~~분석 결과 → `FinancialMetrics` Table INSERT (PK=job_id, RK=base_year)~~
-  → 재무 지표 계산이 보류라 INSERT 할 데이터가 없음. 더미 재무 데이터 + 지표 계산 후 별도 PR.
+- [~] 2-3-7. ~~분석 결과 → `FinancialMetrics` Table INSERT~~
+  → 2-3-4 사유 동일. Claude 산출 risk_level/risk_score 는 `analyze/result.json` 에 저장됨. 별도 정형 Table 적재는 정형 지표 계산 도입 시점에.
 - [x] 2-3-8. 분석 결과 전체 → `jobs/{job_id}/analyze/result.json` Blob PUT
 - [x] 2-3-9. `AgentStatus[analyze]` status=done, `output_blob_path` 기록
 - [x] 2-3-10. 경량 응답 포맷 Pydantic 모델 정의 (`AnalyzeResponse`: job_id, risk_level, risk_score, key_risk_factors, data_gaps, output_blob_path)

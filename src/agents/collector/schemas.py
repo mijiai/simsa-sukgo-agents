@@ -26,4 +26,5 @@ class CollectResponse(BaseModel):
     lawsuit_count: int = 0
     financial_years: list[int] = Field(default_factory=list)
     uploaded_files: list[str] = Field(default_factory=list)
+    has_internal_credit_data: bool = False
     output_blob_path: str

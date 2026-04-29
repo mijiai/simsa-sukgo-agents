@@ -6,6 +6,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from src.agents.collector.factory import close_collector_clients, get_naver_news_client
+from src.agents.collector.internal_db import load_internal_db
 from src.agents.collector.tools import register_collector_tools
 from src.agents.financial.factory import close_anthropic_client, get_anthropic_client
 from src.agents.financial.templates import load_financial_samples
@@ -54,6 +55,12 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
         get_blob_store()
         get_table_store()
         logger.info("storage.singletons.initialized")
+        try:
+            internal = await load_internal_db(get_blob_store())
+            if not internal:
+                logger.warning("internal_db.empty_at_startup")
+        except Exception as exc:
+            logger.warning("internal_db.load_failed", error=str(exc))
     else:
         logger.warning("storage.skipped_no_connection_string")
     if settings.naver_client_id and settings.naver_client_secret:
