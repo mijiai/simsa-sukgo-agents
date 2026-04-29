@@ -157,7 +157,7 @@ Claude.ai
 > 검색이 필요해지면 그때 AI Search 마이그레이션.
 
 - [~] 2-1-1. ~~Azure AI Search 인덱스 스키마 설계~~
-  → `templates/financial_samples/*.{docx,pdf}` Blob prefix 로 대체. startup 1회 로드 → 메모리 캐시.
+  → `templates/financial_samples/*.{docx,pdf,xls,xlsx}` Blob prefix 로 대체. startup 1회 로드 → 메모리 캐시. (xls/xlsx 는 시트별 markdown 테이블로 직렬화해 다년도 표 정확도 ↑)
 - [~] 2-1-2. ~~임베딩 생성 파이프라인 구현~~ → 동일 사유 보류.
 - [~] 2-1-3. ~~더미 재무 분석 예시 문서 청킹 및 색인 적재 스크립트~~
   → 청킹 없이 전체 텍스트 inject (샘플당 4000자 truncate). 색인 적재 대신 Blob 업로드만.
