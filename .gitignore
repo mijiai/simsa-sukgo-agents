@@ -32,3 +32,10 @@ build/
 
 # Claude Code 세션
 .claude/
+
+# 실제 기업 정보가 들어 있는 외부 샘플 (CLAUDE.md 보안 원칙: 실 고객정보 금지)
+# 로컬에서 분석/검증 용도로만 두고 commit 금지
+ref/report*.pdf
+ref/report*.xls
+ref/report*.xlsx
+ref/report*.docx
