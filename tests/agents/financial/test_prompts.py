@@ -126,3 +126,44 @@ def test_user_prompt_truncates_huge_internal_credit_data() -> None:
     out = build_user_prompt(company_name="ACME", raw=raw)
     assert "INTERNAL_TAIL" not in out
     assert "B" * 100 in out
+
+
+def test_user_prompt_inserts_no_attachments_notice_when_empty() -> None:
+    raw = {"news": [], "lawsuits": [], "uploaded_files": [], "financial_years": []}
+    out = build_user_prompt(company_name="ACME", raw=raw)
+    assert "[사용자 첨부 자료 — 0건]" in out
+    assert "사용자가 첨부한 추가 자료 없음" in out
+
+
+def test_user_prompt_injects_attached_documents_with_filename_headers() -> None:
+    raw = {
+        "news": [],
+        "lawsuits": [],
+        "uploaded_files": ["plan.docx", "fin.xlsx"],
+        "financial_years": [],
+        "attached_documents": [
+            {"filename": "plan.docx", "text": "사업 개요: ACME 신사업 진출"},
+            {"filename": "fin.xlsx", "text": "매출 | 1000\n영업이익 | 200"},
+        ],
+    }
+    out = build_user_prompt(company_name="ACME", raw=raw)
+    assert "[사용자 첨부 자료 — 2건]" in out
+    assert "--- plan.docx ---" in out
+    assert "사업 개요: ACME 신사업 진출" in out
+    assert "--- fin.xlsx ---" in out
+    assert "매출 | 1000" in out
+
+
+def test_user_prompt_attachment_with_empty_text_is_skipped_in_section() -> None:
+    """지원 안 되는 형식은 attached_documents 에 빈 text 로 들어올 수 있음 — section 에선 skip."""
+    raw = {
+        "news": [],
+        "lawsuits": [],
+        "uploaded_files": ["photo.png"],
+        "financial_years": [],
+        "attached_documents": [{"filename": "photo.png", "text": ""}],
+    }
+    out = build_user_prompt(company_name="ACME", raw=raw)
+    assert "[사용자 첨부 자료 — 1건]" in out
+    assert "--- photo.png ---" not in out
+    assert "사용자가 첨부한 추가 자료 없음" in out

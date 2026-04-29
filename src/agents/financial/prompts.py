@@ -41,6 +41,7 @@ _NO_SAMPLES_NOTICE = (
 _NO_INTERNAL_CREDIT_NOTICE = (
     "(내부 신용 DB 에 등록된 기업이 아닙니다. 외부 자료로만 판단하세요. data_gaps 에 명시.)"
 )
+_NO_ATTACHMENTS_NOTICE = "(사용자가 첨부한 추가 자료 없음.)"
 
 
 def _format_news(news: list[dict[str, Any]]) -> str:
@@ -71,6 +72,20 @@ def _format_internal_credit(internal_credit_data: str | None) -> str:
     return internal_credit_data[:_INTERNAL_CREDIT_TRUNCATE]
 
 
+def _format_attachments(attached_documents: list[dict[str, Any]]) -> str:
+    """raw.json 의 attached_documents (collector 가 채움) 를 prompt 섹션으로 직렬화."""
+    if not attached_documents:
+        return _NO_ATTACHMENTS_NOTICE
+    parts = []
+    for doc in attached_documents:
+        filename = doc.get("filename", "(unknown)")
+        text = doc.get("text", "")
+        if not text:
+            continue
+        parts.append(f"--- {filename} ---\n{text}")
+    return "\n\n".join(parts) if parts else _NO_ATTACHMENTS_NOTICE
+
+
 def build_user_prompt(
     *,
     company_name: str,
@@ -82,16 +97,20 @@ def build_user_prompt(
     files = raw.get("uploaded_files") or []
     fin_years = raw.get("financial_years") or []
     internal_credit = raw.get("internal_credit_data")
+    attached_documents = raw.get("attached_documents") or []
 
     return f"""분석 대상 기업: {company_name}
 
 [분석 대상 기업 재무·신용 데이터 — 내부 DB]
 {_format_internal_credit(internal_credit)}
 
+[사용자 첨부 자료 — {len(attached_documents)}건]
+{_format_attachments(attached_documents)}
+
 [뉴스 — 최근 {len(news)}건]
 {_format_news(news)}
 
-[업로드된 파일 — {len(files)}건]
+[업로드된 파일 목록 — {len(files)}건]
 {", ".join(files) if files else "(없음)"}
 
 [재무 데이터]
