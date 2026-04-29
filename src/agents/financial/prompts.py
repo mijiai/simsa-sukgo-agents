@@ -33,9 +33,13 @@ SYSTEM_PROMPT = """당신은 한국 시중은행의 기업여신 심사 분석�
 _MAX_NEWS_IN_PROMPT = 30
 _DESCRIPTION_TRUNCATE = 200
 _SAMPLE_TRUNCATE = 4000
+_INTERNAL_CREDIT_TRUNCATE = 8000
 
 _NO_SAMPLES_NOTICE = (
     "(참고용 재무 분석 샘플이 로드되지 않았습니다. 일반적 신용 분석 관점으로 판단하세요.)"
+)
+_NO_INTERNAL_CREDIT_NOTICE = (
+    "(내부 신용 DB 에 등록된 기업이 아닙니다. 외부 자료로만 판단하세요. data_gaps 에 명시.)"
 )
 
 
@@ -61,6 +65,12 @@ def _format_samples(samples: list[str]) -> str:
     return "\n\n".join(parts)
 
 
+def _format_internal_credit(internal_credit_data: str | None) -> str:
+    if not internal_credit_data:
+        return _NO_INTERNAL_CREDIT_NOTICE
+    return internal_credit_data[:_INTERNAL_CREDIT_TRUNCATE]
+
+
 def build_user_prompt(
     *,
     company_name: str,
@@ -71,8 +81,12 @@ def build_user_prompt(
     lawsuits = raw.get("lawsuits") or []
     files = raw.get("uploaded_files") or []
     fin_years = raw.get("financial_years") or []
+    internal_credit = raw.get("internal_credit_data")
 
     return f"""분석 대상 기업: {company_name}
+
+[분석 대상 기업 재무·신용 데이터 — 내부 DB]
+{_format_internal_credit(internal_credit)}
 
 [뉴스 — 최근 {len(news)}건]
 {_format_news(news)}

@@ -91,3 +91,38 @@ def test_user_prompt_truncates_huge_sample() -> None:
     out = build_user_prompt(company_name="ACME", raw=raw, samples=[huge])
     assert "TAIL_MARKER" not in out
     assert "A" * 100 in out
+
+
+def test_user_prompt_inserts_no_internal_credit_notice_when_missing() -> None:
+    raw = {"news": [], "lawsuits": [], "uploaded_files": [], "financial_years": []}
+    out = build_user_prompt(company_name="ACME", raw=raw)
+    assert "[분석 대상 기업 재무·신용 데이터 — 내부 DB]" in out
+    assert "내부 신용 DB 에 등록된 기업이 아닙니다" in out
+
+
+def test_user_prompt_injects_internal_credit_data_when_present() -> None:
+    raw = {
+        "news": [],
+        "lawsuits": [],
+        "uploaded_files": [],
+        "financial_years": [],
+        "internal_credit_data": "부채비율 | 720.81 | 68.9 | 31.11\n신용등급 | CCC+",
+    }
+    out = build_user_prompt(company_name="ACME", raw=raw)
+    assert "[분석 대상 기업 재무·신용 데이터 — 내부 DB]" in out
+    assert "부채비율 | 720.81 | 68.9 | 31.11" in out
+    assert "신용등급 | CCC+" in out
+    assert "내부 신용 DB 에 등록된 기업이 아닙니다" not in out
+
+
+def test_user_prompt_truncates_huge_internal_credit_data() -> None:
+    raw = {
+        "news": [],
+        "lawsuits": [],
+        "uploaded_files": [],
+        "financial_years": [],
+        "internal_credit_data": "B" * 9000 + "INTERNAL_TAIL",
+    }
+    out = build_user_prompt(company_name="ACME", raw=raw)
+    assert "INTERNAL_TAIL" not in out
+    assert "B" * 100 in out

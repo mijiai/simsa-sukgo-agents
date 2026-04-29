@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 
 from src.agents.collector.clients import NaverNewsClient
+from src.agents.collector.internal_db import get_company_data
 from src.agents.collector.schemas import CollectRequest, CollectResponse
 from src.config.logging import get_logger
 from src.storage.blob_store import BlobStore
@@ -58,6 +59,21 @@ async def collect_company_data_service(
 
         news = await naver.search(request.company_name, max_results=30)
 
+        internal_credit_data = get_company_data(company_id) if company_id else None
+        if company_id and internal_credit_data is None:
+            logger.info(
+                "collect.internal_db.miss",
+                job_id=request.job_id,
+                company_id=company_id,
+            )
+        elif internal_credit_data:
+            logger.info(
+                "collect.internal_db.hit",
+                job_id=request.job_id,
+                company_id=company_id,
+                chars=len(internal_credit_data),
+            )
+
         raw_payload = {
             "company_name": request.company_name,
             "company_id": company_id,
@@ -66,6 +82,7 @@ async def collect_company_data_service(
             "lawsuits": [],
             "uploaded_files": uploaded_files,
             "financial_years": [],
+            "internal_credit_data": internal_credit_data,
         }
 
         raw_path = _raw_blob_path(request.job_id)
@@ -93,6 +110,7 @@ async def collect_company_data_service(
             company_id=company_id,
             news_count=len(news),
             uploaded_files=uploaded_files,
+            has_internal_credit_data=internal_credit_data is not None,
             output_blob_path=raw_path,
         )
 

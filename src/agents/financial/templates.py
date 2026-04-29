@@ -104,7 +104,12 @@ def extract_xls_text(data: bytes) -> str:
     return "\n\n".join(parts)
 
 
-def _extract(path: str, data: bytes) -> str:
+def extract_document_text(path: str, data: bytes) -> str:
+    """Public dispatch — pick the right extractor based on file suffix.
+
+    Shared with collector/internal_db.py (per-company internal credit data lookup)
+    so both share one source of truth for supported formats.
+    """
     lower = path.lower()
     if lower.endswith(_DOCX_SUFFIX):
         return extract_docx_text(data)
@@ -131,7 +136,7 @@ async def load_financial_samples(blob: BlobStore, prefix: str) -> list[str]:
     for path in sample_paths:
         try:
             data = await blob.download(path)
-            text = _extract(path, data)
+            text = extract_document_text(path, data)
         except Exception as exc:
             logger.warning("financial.sample.load_failed", path=path, error=str(exc))
             continue

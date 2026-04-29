@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from src.agents.collector.internal_db import reset_for_tests as reset_internal_db
 from src.agents.collector.schemas import CollectRequest, NewsArticle
 from src.agents.collector.service import collect_company_data_service
 from src.common.exceptions import NaverApiError
@@ -15,6 +16,7 @@ def _now() -> datetime:
 
 
 def _make_deps() -> tuple[MagicMock, MagicMock, MagicMock]:
+    reset_internal_db()
     blob = MagicMock()
     blob.upload = AsyncMock()
     blob.list_prefix = AsyncMock(return_value=[])
@@ -177,3 +179,64 @@ async def test_collect_company_not_found_continues_with_none_id() -> None:
     assert response.company_id is None
     payload = json.loads(blob.upload.call_args.args[1].decode("utf-8"))
     assert payload["company_id"] is None
+    assert payload["internal_credit_data"] is None
+    assert response.has_internal_credit_data is False
+
+
+async def test_collect_internal_db_hit_injects_data_into_raw_payload() -> None:
+    blob, tables, naver = _make_deps()
+    reset_internal_db({"1248100998": "부채비율 | 180\n유동비율 | 120"})
+    tables.companies.find_by_name = AsyncMock(
+        return_value=Company(
+            company_id="1248100998",
+            company_name="ACME",
+            created_at=_now(),
+            updated_at=_now(),
+        )
+    )
+
+    request = CollectRequest(job_id="job-7", company_name="ACME")
+    response = await collect_company_data_service(request, blob, tables, naver)
+
+    payload = json.loads(blob.upload.call_args.args[1].decode("utf-8"))
+    assert payload["company_id"] == "1248100998"
+    assert "부채비율 | 180" in payload["internal_credit_data"]
+    assert "유동비율 | 120" in payload["internal_credit_data"]
+    assert response.has_internal_credit_data is True
+
+
+async def test_collect_internal_db_miss_for_known_company_keeps_field_none() -> None:
+    """Companies match hits but internal_db has no entry for that company_id."""
+    blob, tables, naver = _make_deps()
+    reset_internal_db({"OTHER-ID": "다른 회사 데이터"})
+    tables.companies.find_by_name = AsyncMock(
+        return_value=Company(
+            company_id="1248100998",
+            company_name="ACME",
+            created_at=_now(),
+            updated_at=_now(),
+        )
+    )
+
+    request = CollectRequest(job_id="job-8", company_name="ACME")
+    response = await collect_company_data_service(request, blob, tables, naver)
+
+    payload = json.loads(blob.upload.call_args.args[1].decode("utf-8"))
+    assert payload["company_id"] == "1248100998"
+    assert payload["internal_credit_data"] is None
+    assert response.has_internal_credit_data is False
+
+
+async def test_collect_unknown_company_skips_internal_db_lookup() -> None:
+    """If Companies match misses, internal_db isn't consulted (no company_id)."""
+    blob, tables, naver = _make_deps()
+    reset_internal_db({"1248100998": "이 회사 데이터는 매칭 안 돼야 함"})
+    tables.companies.find_by_name = AsyncMock(return_value=None)
+
+    request = CollectRequest(job_id="job-9", company_name="Unknown Co")
+    response = await collect_company_data_service(request, blob, tables, naver)
+
+    payload = json.loads(blob.upload.call_args.args[1].decode("utf-8"))
+    assert payload["company_id"] is None
+    assert payload["internal_credit_data"] is None
+    assert response.has_internal_credit_data is False
