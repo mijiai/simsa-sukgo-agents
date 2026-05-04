@@ -2,6 +2,7 @@ from io import BytesIO
 from unittest.mock import AsyncMock, MagicMock
 
 import openpyxl
+import xlwt
 from PIL import Image
 
 from src.agents.collector.extractors import (
@@ -10,6 +11,7 @@ from src.agents.collector.extractors import (
     extract_image,
     extract_pdf,
     extract_uploaded_file,
+    extract_xls,
     extract_xlsx,
 )
 
@@ -21,6 +23,18 @@ def _make_xlsx(sheets: dict[str, list[list]]) -> bytes:
         ws = wb.create_sheet(name)
         for row in rows:
             ws.append(row)
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _make_xls(sheets: dict[str, list[list]]) -> bytes:
+    wb = xlwt.Workbook()
+    for name, rows in sheets.items():
+        ws = wb.add_sheet(name)
+        for r, row in enumerate(rows):
+            for c, val in enumerate(row):
+                ws.write(r, c, val)
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -112,6 +126,42 @@ async def test_extract_xlsx_skips_empty_sheets() -> None:
     names = [s["sheet_name"] for s in sheets]
     assert "real" in names
     assert "empty" not in names
+
+
+async def test_extract_xls_basic_separates_columns_and_rows() -> None:
+    data = _make_xls(
+        {
+            "재무": [["구분", "2023", "2024"], ["자산총계", 1000, 1200]],
+            "비율": [["지표", "값"], ["부채비율", 180.5]],
+        }
+    )
+    sheets = await extract_xls(_blob_with(data), "any/path.xls")
+    by_name = {s["sheet_name"]: s for s in sheets}
+    assert by_name["재무"]["columns"] == ["구분", "2023", "2024"]
+    assert by_name["재무"]["rows"] == [["자산총계", 1000, 1200]]
+    assert by_name["재무"]["truncated"] is False
+    assert by_name["비율"]["rows"] == [["부채비율", 180.5]]
+
+
+async def test_extract_xls_truncates_rows_beyond_limit() -> None:
+    rows = [["구분", "값"]] + [[f"row_{i}", i] for i in range(XLSX_MAX_ROWS_PER_SHEET + 50)]
+    data = _make_xls({"S": rows})
+    sheets = await extract_xls(_blob_with(data), "x.xls")
+    assert len(sheets[0]["rows"]) == XLSX_MAX_ROWS_PER_SHEET
+    assert sheets[0]["truncated"] is True
+
+
+async def test_extract_uploaded_file_routes_xls_to_xls_extractor() -> None:
+    """레거시 .xls 는 openpyxl 이 못 읽음 → xlrd 기반 extract_xls 로 가야 함.
+
+    회귀 방지: 이 분기가 빠지면 .xls 업로드가 BadZipFile → 빈 raw.json → 보고서 [자료 미확보].
+    """
+    data = _make_xls({"재무": [["구분", "2024"], ["자산총계", 9999]]})
+    result = await extract_uploaded_file(_blob_with(data), "p", "재무제표.xls")
+    assert result is not None
+    assert result["kind"] == "xlsx"  # downstream 분기 호환 (extracted_tables 로 들어감)
+    assert result["content"][0]["sheet_name"] == "재무"
+    assert result["content"][0]["rows"] == [["자산총계", 9999]]
 
 
 async def test_extract_pdf_returns_text_and_page_count() -> None:
