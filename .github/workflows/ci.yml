@@ -127,6 +127,10 @@ jobs:
               "REPORT_MAX_TOKENS=8192" \
               "REPORT_SAS_EXPIRY_HOURS=168" \
               "REPORT_SAMPLES_BLOB_PREFIX=templates/report_samples/" \
+              "REPORT_BASE_DOCX_BLOB_PATH=" \
+              "APPENDIX_ROW_THRESHOLD=35" \
+              "IMAGE_VISION_ENABLED=false" \
+              "IMAGE_VISION_MODEL=claude-haiku-4-5-20251001" \
               "FINANCIAL_SAMPLES_BLOB_PREFIX=templates/financial_samples/" \
               "GMAIL_CREDENTIALS_BLOB_PATH=credentials/gmail_oauth.json" \
               "ALERT_MIN_RISK_LEVEL=MEDIUM" \

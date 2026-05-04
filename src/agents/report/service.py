@@ -65,6 +65,21 @@ def _build_sections(
     return sections
 
 
+async def _maybe_download_base_docx(blob: BlobStore, base_blob_path: str) -> bytes | None:
+    """base docx 가 Blob 에 있으면 다운로드. 없으면 None — 새 Document() 로 진행."""
+    if not base_blob_path:
+        return None
+    try:
+        return await blob.download(base_blob_path)
+    except Exception as exc:
+        logger.warning(
+            "report.base_docx.download_failed",
+            blob_path=base_blob_path,
+            error=str(exc),
+        )
+        return None
+
+
 async def report_generate_service(
     request: ReportRequest,
     blob: BlobStore,
@@ -73,6 +88,8 @@ async def report_generate_service(
     *,
     sas_expiry_hours: int,
     template_name: str = DEFAULT_TEMPLATE_NAME,
+    base_docx_blob_path: str = "",
+    appendix_row_threshold: int = 0,
 ) -> ReportResponse:
     await tables.jobs.update_status(
         request.job_id,
@@ -115,9 +132,20 @@ async def report_generate_service(
         ]
         sections = _build_sections(template, plan, section_insights)
 
-        # 5. docx + md 렌더 (LLM 호출 X)
-        docx_bytes = await render_report_docx(template, sections, blob)
-        md_text = render_report_markdown(template, sections)
+        # 5. docx + md 렌더 (LLM 호출 X). base docx 와 appendix 정책은 PR4.
+        base_docx_bytes = await _maybe_download_base_docx(blob, base_docx_blob_path)
+        docx_bytes = await render_report_docx(
+            template,
+            sections,
+            blob,
+            base_docx_bytes=base_docx_bytes,
+            appendix_row_threshold=appendix_row_threshold,
+        )
+        md_text = render_report_markdown(
+            template,
+            sections,
+            appendix_row_threshold=appendix_row_threshold,
+        )
 
         # 6. Blob 양쪽 업로드
         docx_path = _report_docx_blob_path(request.job_id)

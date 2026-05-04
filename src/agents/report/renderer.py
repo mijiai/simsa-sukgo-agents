@@ -9,6 +9,11 @@ docx 디자인:
 - 출처 라벨: italic 8pt
 - bullet: List Bullet style
 - 이미지: BytesIO → add_picture(width=Cm(12)). 미제출 시 placeholder 텍스트
+
+PR4 추가:
+- base docx 스타일 상속 (Document(BytesIO(base)) + 본문 비우기)
+- 필수 이미지 (optional=False) 누락 → 섹션 통째로 placeholder
+- 별첨 섹션 자동 생성 (큰 표는 섹션 본문 대신 별첨에 게재)
 """
 
 from io import BytesIO
@@ -28,6 +33,9 @@ logger = get_logger(__name__)
 
 _IMAGE_DEFAULT_WIDTH_CM = 12.0
 _DATA_GAP_PLACEHOLDER = "[자료 미확보]"
+_REQUIRED_IMAGE_MISSING_TEXT = "[자료 미확보 — 추가 제출 필요]"
+_APPENDIX_TITLE = "별첨"
+_BODY_REPLACED_NOTE = "(상세 표는 별첨 참조)"
 
 
 def _stringify(value: Any) -> str:
@@ -36,6 +44,32 @@ def _stringify(value: Any) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value)
+
+
+def _open_base_document(base_bytes: bytes | None) -> Document:
+    """base docx 가 주어지면 그 스타일/헤더/푸터를 상속하고 본문은 비운 새 Document 반환.
+
+    base 가 None 이면 Document() 새로 생성.
+    """
+    if not base_bytes:
+        return Document()
+    try:
+        doc = Document(BytesIO(base_bytes))
+    except Exception as exc:
+        logger.warning("report.render.base_open_failed", error=str(exc))
+        return Document()
+    # 본문 비우기 — body 의 paragraph/table 제거. sectPr (페이지 설정) 는 보존.
+    body = doc.element.body
+    for child in list(body):
+        if child.tag.endswith("}sectPr"):
+            continue
+        body.remove(child)
+    return doc
+
+
+def _section_has_required_image_missing(section: SectionContent) -> bool:
+    """필수 이미지(optional=False)가 data_gap 또는 blob_path 없음이면 True."""
+    return any((not img.optional) and (img.data_gap or not img.blob_path) for img in section.images)
 
 
 # ─────────────────────────── DOCX ───────────────────────────
@@ -124,11 +158,37 @@ async def _render_section_docx(
     doc: Document,
     section: SectionContent,
     blob: BlobStore | None,
+    appendix_table_ids: set[str] | None = None,
 ) -> None:
+    """1개 섹션을 doc 에 append.
+
+    필수 이미지가 빠져있으면 섹션 본문 대신 placeholder 만 출력.
+    appendix_table_ids 에 들어있는 table_id 는 본문에서 생략하고 (별첨 참조) 안내만.
+    """
     doc.add_heading(f"{section.number}. {section.title}", level=1)
 
+    if _section_has_required_image_missing(section):
+        # 필수 이미지 누락 → 섹션 통째로 placeholder
+        msg = doc.add_paragraph()
+        msg_run = msg.add_run(_REQUIRED_IMAGE_MISSING_TEXT)
+        msg_run.italic = True
+        return
+
+    appendix_table_ids = appendix_table_ids or set()
+
     for table in section.tables:
-        _add_table(doc, table)
+        if table.table_id in appendix_table_ids:
+            # 본문에는 표 제목 + "별첨 참조" 만 — 데이터는 별첨에서.
+            title_para = doc.add_paragraph()
+            title_para.add_run(table.title).bold = True
+            ref_para = doc.add_paragraph()
+            ref_run = ref_para.add_run(_BODY_REPLACED_NOTE)
+            ref_run.italic = True
+            # bullet 평가는 본문에 그대로
+            for bullet in table.bullets:
+                doc.add_paragraph(bullet, style="List Bullet")
+        else:
+            _add_table(doc, table)
 
     for image in section.images:
         await _add_image(doc, image, blob)
@@ -138,22 +198,68 @@ async def _render_section_docx(
         doc.add_paragraph(bullet, style="List Bullet")
 
 
+async def _render_appendix_docx(
+    doc: Document, appendix_tables: list[TableContent], blob: BlobStore | None
+) -> None:
+    if not appendix_tables:
+        return
+    doc.add_heading(_APPENDIX_TITLE, level=1)
+    for table in appendix_tables:
+        _add_table(doc, table)
+
+
+def collect_appendix_tables(
+    sections: dict[ReportSection, SectionContent],
+    *,
+    row_threshold: int,
+) -> tuple[list[TableContent], set[str]]:
+    """row 가 threshold 초과인 표를 별첨 후보로 수집.
+
+    Returns:
+        (appendix_tables, appendix_table_ids)
+        - appendix_tables: 별첨 섹션에 게재할 TableContent 목록 (전체 데이터 보존)
+        - appendix_table_ids: 본문에서 생략 처리할 table_id set
+    """
+    appendix: list[TableContent] = []
+    ids: set[str] = set()
+    for section in sections.values():
+        for table in section.tables:
+            if table.data_gap:
+                continue
+            if len(table.rows) > row_threshold:
+                appendix.append(table)
+                ids.add(table.table_id)
+    return appendix, ids
+
+
 async def render_report_docx(
     template: ReportTemplate,
     sections: dict[ReportSection, SectionContent],
     blob: BlobStore | None = None,
+    *,
+    base_docx_bytes: bytes | None = None,
+    appendix_row_threshold: int | None = None,
 ) -> bytes:
     """전체 보고서를 docx 바이트로 렌더.
 
     blob 가 None 이면 이미지는 모두 placeholder 처리 (테스트/오프라인 모드).
+    base_docx_bytes 가 주어지면 그 docx 의 스타일/헤더/푸터를 상속.
+    appendix_row_threshold 초과 행 수의 표는 본문에서 빼고 별첨 섹션에 게재.
     """
-    doc = Document()
+    doc = _open_base_document(base_docx_bytes)
 
-    # 표지 — 단순한 제목만
+    # 표지 — 단순한 제목만 (base 에 표지가 있어도 덮어쓰지 않고 추가 — base body 는 비워진 상태)
     title = doc.add_paragraph()
     title_run = title.add_run("기업 여신 심사 보고서")
     title_run.bold = True
     title_run.font.size = Pt(20)
+
+    appendix_tables: list[TableContent] = []
+    appendix_ids: set[str] = set()
+    if appendix_row_threshold and appendix_row_threshold > 0:
+        appendix_tables, appendix_ids = collect_appendix_tables(
+            sections, row_threshold=appendix_row_threshold
+        )
 
     for spec in template.sections:
         section = sections.get(spec.section_id)
@@ -163,7 +269,9 @@ async def render_report_docx(
             err = doc.add_paragraph()
             err.add_run(f"{_DATA_GAP_PLACEHOLDER} — 섹션 데이터 없음").italic = True
             continue
-        await _render_section_docx(doc, section, blob)
+        await _render_section_docx(doc, section, blob, appendix_table_ids=appendix_ids)
+
+    await _render_appendix_docx(doc, appendix_tables, blob)
 
     buf = BytesIO()
     doc.save(buf)
@@ -223,10 +331,28 @@ def _md_image(image: ImageContent) -> list[str]:
     return lines
 
 
-def _md_section(section: SectionContent) -> list[str]:
+def _md_section(
+    section: SectionContent,
+    appendix_ids: set[str] | None = None,
+) -> list[str]:
     lines = [f"# {section.number}. {section.title}", ""]
+    if _section_has_required_image_missing(section):
+        lines.append(f"_{_REQUIRED_IMAGE_MISSING_TEXT}_")
+        lines.append("")
+        return lines
+    appendix_ids = appendix_ids or set()
     for table in section.tables:
-        lines.extend(_md_table(table))
+        if table.table_id in appendix_ids:
+            lines.append(f"**{table.title}**")
+            lines.append("")
+            lines.append(f"_{_BODY_REPLACED_NOTE}_")
+            lines.append("")
+            for bullet in table.bullets:
+                lines.append(f"- {bullet}")
+            if table.bullets:
+                lines.append("")
+        else:
+            lines.extend(_md_table(table))
     for image in section.images:
         lines.extend(_md_image(image))
     for bullet in section.section_bullets:
@@ -239,9 +365,17 @@ def _md_section(section: SectionContent) -> list[str]:
 def render_report_markdown(
     template: ReportTemplate,
     sections: dict[ReportSection, SectionContent],
+    *,
+    appendix_row_threshold: int | None = None,
 ) -> str:
     """전체 보고서를 GFM markdown 으로 렌더 (호환용)."""
     out: list[str] = ["# 기업 여신 심사 보고서", ""]
+    appendix_tables: list[TableContent] = []
+    appendix_ids: set[str] = set()
+    if appendix_row_threshold and appendix_row_threshold > 0:
+        appendix_tables, appendix_ids = collect_appendix_tables(
+            sections, row_threshold=appendix_row_threshold
+        )
     for spec in template.sections:
         section = sections.get(spec.section_id)
         if section is None:
@@ -250,5 +384,10 @@ def render_report_markdown(
             out.append(f"_{_DATA_GAP_PLACEHOLDER} — 섹션 데이터 없음_")
             out.append("")
             continue
-        out.extend(_md_section(section))
+        out.extend(_md_section(section, appendix_ids=appendix_ids))
+    if appendix_tables:
+        out.append(f"# {_APPENDIX_TITLE}")
+        out.append("")
+        for table in appendix_tables:
+            out.extend(_md_table(table))
     return "\n".join(out)

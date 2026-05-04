@@ -44,6 +44,26 @@ class Settings(BaseSettings):
     report_max_tokens: int = Field(default=8192)
     report_sas_expiry_hours: int = Field(default=168)
     report_samples_blob_prefix: str = Field(default="templates/report_samples/")
+    report_base_docx_blob_path: str = Field(
+        default="",
+        description="(PR4) 보고서 base docx Blob 경로. 비어있으면 빈 Document() 로 시작. "
+        "이 파일이 있으면 Document(base) 로 열어 헤더/푸터/표 보더 색상 등 스타일 상속.",
+    )
+    appendix_row_threshold: int = Field(
+        default=35,
+        ge=1,
+        description="(PR4) 표 행이 이 값을 초과하면 자동으로 별첨 섹션으로 분리.",
+    )
+
+    # (PR4) 이미지 캡션용 Vision (default off — 비용 0)
+    image_vision_enabled: bool = Field(
+        default=False,
+        description="True 면 collector 가 이미지 1개당 1회 Vision API 호출해 caption 생성.",
+    )
+    image_vision_model: str = Field(
+        default="claude-haiku-4-5-20251001",
+        description="Vision caption 용 모델. Haiku 권장 (싸고 충분).",
+    )
 
     # Gmail
     gmail_credentials_blob_path: str = Field(default="credentials/gmail_oauth.json")

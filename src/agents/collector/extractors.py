@@ -14,6 +14,7 @@ import openpyxl
 import pdfplumber
 from PIL import Image
 
+from src.common.anthropic_client import AnthropicClient
 from src.config.logging import get_logger
 from src.storage.blob_store import BlobStore
 
@@ -150,12 +151,52 @@ async def extract_pdf(blob: BlobStore, blob_path: str) -> dict[str, Any]:
     }
 
 
+VISION_CAPTION_SYSTEM_PROMPT = (
+    "당신은 여신 심사 보고서에 첨부될 이미지를 한 문장의 한국어 캡션으로 설명하는 도우미입니다. "
+    "객관적·간결한 사실만 기술하고 추측은 하지 않습니다. 1문장, 80자 이내."
+)
+VISION_CAPTION_USER_PROMPT = (
+    "이 이미지가 무엇을 보여주는지 한 문장(80자 이내, 한국어)으로 캡션을 만드세요. "
+    "예: '주요 자회사 3개를 포함한 지분 구조도', '상품 카탈로그 메인 페이지'."
+)
+
+
+async def caption_image_with_vision(
+    blob: BlobStore,
+    blob_path: str,
+    original_filename: str,
+    anthropic: AnthropicClient,
+    *,
+    model: str | None = None,
+) -> str | None:
+    """단일 이미지에 대해 Claude Vision 으로 짧은 caption 생성. 실패 시 None."""
+    try:
+        data = await blob.download(blob_path)
+        return await anthropic.complete_with_image(
+            system=VISION_CAPTION_SYSTEM_PROMPT,
+            user_text=VISION_CAPTION_USER_PROMPT,
+            image_bytes=data,
+            image_filename=original_filename,
+            model=model,
+            max_tokens=200,
+        )
+    except Exception as exc:
+        logger.warning(
+            "collect.image.vision_caption_failed",
+            blob_path=blob_path,
+            error=str(exc),
+        )
+        return None
+
+
 async def extract_image(blob: BlobStore, blob_path: str, original_filename: str) -> dict[str, Any]:
-    """이미지 메타데이터 추출 (LLM Vision 미사용).
+    """이미지 메타데이터 추출 (LLM Vision 미사용 — caption 은 별도 함수로 분리).
 
     Returns:
         {"blob_path": str, "original_filename": str,
-         "suspected_role": str, "width": int, "height": int}
+         "suspected_role": str, "width": int, "height": int, "caption": None}
+
+    caption 필드는 placeholder None — vision 활성화 시 collector service 가 채움.
     """
     data = await blob.download(blob_path)
     with Image.open(BytesIO(data)) as img:
@@ -166,6 +207,7 @@ async def extract_image(blob: BlobStore, blob_path: str, original_filename: str)
         "suspected_role": _suspect_image_role(original_filename),
         "width": width,
         "height": height,
+        "caption": None,
     }
 
 
