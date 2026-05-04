@@ -9,6 +9,7 @@ from src.agents.financial.schemas import (
     AnalyzeResponse,
     ClaudeJudgment,
 )
+from src.agents.financial.templates import get_cached_samples
 from src.common.anthropic_client import AnthropicClient
 from src.config.logging import get_logger
 from src.storage.blob_store import BlobStore
@@ -47,7 +48,11 @@ async def analyze_financials_service(
         company_name = raw.get("company_name", "")
         company_id = raw.get("company_id")
 
-        user_prompt = build_user_prompt(company_name=company_name, raw=raw)
+        samples = get_cached_samples()
+        if not samples:
+            logger.warning("analyze.samples.empty", job_id=request.job_id)
+
+        user_prompt = build_user_prompt(company_name=company_name, raw=raw, samples=samples)
         judgment_dict = await anthropic.complete_json(system=SYSTEM_PROMPT, user=user_prompt)
         judgment = ClaudeJudgment.model_validate(judgment_dict)
 
@@ -63,11 +68,14 @@ async def analyze_financials_service(
             key_risk_factors=judgment.key_risk_factors,
             positive_signals=judgment.positive_signals,
             data_gaps=judgment.data_gaps,
+            section_insights=judgment.section_insights,
             input_summary=AnalysisInputSummary(
                 news_count=len(raw.get("news") or []),
                 lawsuit_count=len(raw.get("lawsuits") or []),
                 uploaded_file_count=len(raw.get("uploaded_files") or []),
                 financial_years=raw.get("financial_years") or [],
+                extracted_table_count=len(raw.get("extracted_tables") or []),
+                extracted_image_count=len(raw.get("extracted_images") or []),
             ),
         )
 
@@ -92,6 +100,7 @@ async def analyze_financials_service(
             job_id=request.job_id,
             risk_level=judgment.risk_level.value,
             risk_score=judgment.risk_score,
+            section_insights_count=len(judgment.section_insights),
         )
 
         return AnalyzeResponse(
@@ -100,6 +109,7 @@ async def analyze_financials_service(
             risk_score=judgment.risk_score,
             key_risk_factors=judgment.key_risk_factors,
             data_gaps=judgment.data_gaps,
+            section_insights_count=len(judgment.section_insights),
             output_blob_path=result_path,
         )
 

@@ -106,10 +106,7 @@ Claude.ai
   - 인프라 테이블 : `SchedulerState`
   - 테이블 자동 생성 (idempotent), PartitionKey / RowKey 규칙은 `/ref/DB_DESIGN.md` §2 준수
 - [x] 1-1-3. Pydantic 스키마 정의 (`schemas.py`) — 각 테이블 행 ↔ 모델 매핑
-- [ ] 1-1-4. 더미/샘플 데이터셋 적재 스크립트 (`scripts/seed_dummy_data.py`)
-  - `Companies` 더미 기업 N개
-  - `FinancialRaw` 더미 재무 행 (실 고객정보 미사용)
-  - 로컬 검증용
+- [~] 1-1-4. ~~더미/샘플 데이터셋 적재 스크립트~~ → **방향 전환**: Table `FinancialRaw` 정형 적재 대신 회사별 Blob 파일 (`internal/companies/{company_id}/financial.{xlsx,xls,pdf,docx}`) + startup 메모리 캐시 (`src/agents/collector/internal_db.py`). seed 스크립트는 PR 외부에서 사용자가 직접 관리 (10개 기업 사업자번호별 Companies INSERT + Blob 업로드).
 
 ### 1-2. Naver News API 연동
 
@@ -137,8 +134,8 @@ Claude.ai
 - [~] 1-4-4. ~~Companies Table 조회 · Naver News · 소송자료 병렬 호출 (`asyncio.gather`) 구현~~
   → 현재는 Companies + Naver News 만 (직렬 호출). 소송자료는 1-3 보류 상태. 병렬화는 자료 추가 후.
 - [x] 1-4-5. `Companies` Table 조회 (find_by_name, UPSERT는 `create_analysis_job`에서 수행)
-- [~] 1-4-6. ~~수집 결과 → `FinancialRaw` Table INSERT (PartitionKey=job_id, 연도별 행)~~
-  → 1-1-4 더미 재무 데이터 보류 상태로 소스 없음. 더미 적재 후 별도 PR.
+- [~] 1-4-6. ~~수집 결과 → `FinancialRaw` Table INSERT~~
+  → 1-1-4 방향 전환에 따라 Table 적재 미수행. 대신 collector 가 `Companies.find_by_name` 매칭 시 `internal_db.get_company_data(company_id)` 로 사전 캐시된 텍스트를 raw.json 의 `internal_credit_data` 필드에 inject (회사 매칭 hit 시).
 - [x] 1-4-7. 수집 결과 전체 → `jobs/{job_id}/collect/raw.json` Blob PUT
 - [x] 1-4-8. `AgentStatus[collect]` status=done, `output_blob_path` 기록
 - [x] 1-4-9. 경량 응답 포맷 Pydantic 모델 정의 (job_id + 메타 요약만 반환)
@@ -152,12 +149,16 @@ Claude.ai
 
 ### 2-1. Azure AI Search 기반 학습 DB 구성
 
-- [ ] 2-1-1. Azure AI Search 인덱스 스키마 설계
-  - 필드 : `id`, `company_type`, `content`, `embedding`, `source_type`, `year`
-  - 업종별 벤치마크 · 재무 분석 예시 · 판례 문서 대상
-- [ ] 2-1-2. 임베딩 생성 파이프라인 구현 (Azure OpenAI Embeddings 또는 외부 모델)
-- [ ] 2-1-3. 더미 재무 분석 예시 문서 청킹 및 Azure AI Search 색인 적재 스크립트 작성
-- [ ] 2-1-4. 유사 사례 검색 함수 구현 (`azure-search-documents` SDK, hybrid search)
+> **Blob 캐시로 대체** (3-1-2 보고서 패턴과 동일). AI Search Basic tier 월 $75 비용 + 임베딩
+> 파이프라인 운영 부담 vs 샘플 수십 개 이내 PoC 규모를 고려한 결정. 샘플 50+ 또는 회사 특성별
+> 검색이 필요해지면 그때 AI Search 마이그레이션.
+
+- [~] 2-1-1. ~~Azure AI Search 인덱스 스키마 설계~~
+  → `templates/financial_samples/*.{docx,pdf,xls,xlsx}` Blob prefix 로 대체. startup 1회 로드 → 메모리 캐시. (xls/xlsx 는 시트별 markdown 테이블로 직렬화해 다년도 표 정확도 ↑)
+- [~] 2-1-2. ~~임베딩 생성 파이프라인 구현~~ → 동일 사유 보류.
+- [~] 2-1-3. ~~더미 재무 분석 예시 문서 청킹 및 색인 적재 스크립트~~
+  → 청킹 없이 전체 텍스트 inject (샘플당 4000자 truncate). 색인 적재 대신 Blob 업로드만.
+- [~] 2-1-4. ~~유사 사례 검색 함수 구현~~ → 검색 없이 모든 샘플 일괄 inject.
 
 ### 2-2. 분석 지침(Prompt) 설계
 
@@ -175,15 +176,13 @@ Claude.ai
 - [x] 2-3-1. `analyze_financials(job_id: str)` Tool 정의
   - `job_id`만 수신, Blob(`jobs/{job_id}/collect/raw.json`) 에서 직접 데이터 로드
 - [x] 2-3-2. Agent 시작 시 `AgentStatus[analyze]` status=running, `AnalysisJobs` status=analyzing 업데이트
-- [~] 2-3-3. ~~`FinancialRaw` Table query (PK=job_id) + Blob `raw.json` GET → 분석 입력 구성~~
-  → 현재는 `raw.json` GET 만 수행. `FinancialRaw` query 는 1-1-4 더미 데이터 보류로 미수행.
+- [x] 2-3-3. 분석 입력 구성 — `raw.json` GET (collector 가 이미 `internal_credit_data` 필드에 사전 캐시된 회사 데이터를 inject 해둠). 별도 `FinancialRaw` query 는 1-1-4 방향 전환으로 불필요.
 - [~] 2-3-4. ~~재무 지표 계산 및 업종 벤치마크 비교 로직 구현~~
-  → 2-2-2 와 동일 사유 보류 (재무 데이터 없음).
-- [~] 2-3-5. ~~Azure AI Search 유사 사례 검색 결과 컨텍스트 주입~~
-  → 2-1 (Azure AI Search 인덱스 구축) 미진행. 별도 PR.
+  → Python 단의 정형 지표 계산은 미수행. Claude (Sonnet) 가 `internal_credit_data` 텍스트에서 직접 부채비율/유동비율/추이 등을 읽고 판단. 별도 계산 로직은 향후 1-1-4 가 정형 Table 로 회귀할 경우에만 의미.
+- [x] 2-3-5. 참고 샘플 컨텍스트 주입 — `financial/templates.py` 가 startup 시 Blob 에서 `.docx`/`.pdf` 일괄 로드 → `build_user_prompt(samples=...)` 로 inject. 2-1 결정에 따라 AI Search 가 아닌 Blob 캐시 패턴.
 - [x] 2-3-6. 분석 인사이트 생성 (Claude API 호출, `claude-haiku-4-5-20251001` default)
-- [~] 2-3-7. ~~분석 결과 → `FinancialMetrics` Table INSERT (PK=job_id, RK=base_year)~~
-  → 재무 지표 계산이 보류라 INSERT 할 데이터가 없음. 더미 재무 데이터 + 지표 계산 후 별도 PR.
+- [~] 2-3-7. ~~분석 결과 → `FinancialMetrics` Table INSERT~~
+  → 2-3-4 사유 동일. Claude 산출 risk_level/risk_score 는 `analyze/result.json` 에 저장됨. 별도 정형 Table 적재는 정형 지표 계산 도입 시점에.
 - [x] 2-3-8. 분석 결과 전체 → `jobs/{job_id}/analyze/result.json` Blob PUT
 - [x] 2-3-9. `AgentStatus[analyze]` status=done, `output_blob_path` 기록
 - [x] 2-3-10. 경량 응답 포맷 Pydantic 모델 정의 (`AnalyzeResponse`: job_id, risk_level, risk_score, key_risk_factors, data_gaps, output_blob_path)
@@ -289,42 +288,37 @@ Claude.ai
 
 ### 5-1. 단일 FastMCP 서버 통합
 
-- [ ] 5-1-1. 4개 Agent의 모든 Tool을 `main.py` 단일 FastMCP 서버에 등록
-- [ ] 5-1-2. Tool 네이밍 컨벤션 확정 및 description 최적화
-  - prefix 규칙 : `collect_*` / `analyze_*` / `report_*` / `monitor_*`
-  - Claude가 Tool description만 보고 올바르게 라우팅할 수 있도록 한국어 description 작성
-- [ ] 5-1-3. 서버 메타데이터 설정 (`name="simsasukgo"`, `version`, `instructions`)
-- [ ] 5-1-4. `instructions` 필드에 오케스트레이션 흐름 가이드 작성
-  - "기업 분석 요청 시 `create_analysis_job` 먼저 호출해 `job_id` 를 발급받을 것"
-  - "이후 `collect_company_data(job_id)` → `analyze_financials(job_id)` → `report_generate(job_id)` 순서로 호출"
-  - "각 Tool은 `job_id` 하나만 다음 Tool에 전달하며 대용량 데이터는 직접 주고받지 않는다"
-  - "모니터링 등록은 보고서 생성 완료 후 `monitor_register(origin_job_id=job_id)` 호출"
+- [x] 5-1-1. 4개 Agent의 모든 Tool을 단일 FastMCP 서버에 등록 — `src/mcp/server.py` `create_mcp_server()` 에서 `register_job_tools` + 4 agent register_*_tools 일괄 등록
+- [x] 5-1-2. Tool 네이밍 컨벤션 확정 및 description 최적화 — prefix 규칙 (`collect_*` / `analyze_*` / `report_*` / `monitor_*`) + 모든 description 한국어 작성. Claude.ai 자율 오케스트레이션 검증 완료 (5-2-4)
+- [x] 5-1-3. 서버 메타데이터 설정 — `name="simsasukgo"`, `version="0.1.0"`, `instructions=SERVER_INSTRUCTIONS`
+- [x] 5-1-4. `instructions` 필드에 오케스트레이션 흐름 가이드 작성 — `SERVER_INSTRUCTIONS` 상수에 4-step 흐름 + monitor_register 옵션 명시
 - [ ] 5-1-5. MCP Resource 등록 검토 (보고서 템플릿 · 분석 지침 문서를 Resource로 노출)
+  → 현재는 Tool 만으로 충분히 동작. Resource 노출은 후속 PR.
 
 ### 5-2. Claude.ai SSE 연동 검증
 
-- [ ] 5-2-1. Claude.ai MCP 설정 작성 (SSE URL 기반)
-  ```json
-  {
-    "mcpServers": {
-      "simsasukgo": {
-        "url": "https://<azure-container-app-domain>/sse"
-      }
-    }
-  }
+- [x] 5-2-1. Claude.ai MCP 설정 — SSE URL 기반 connector 등록 절차 README 에 정리
   ```
-- [ ] 5-2-2. 로컬 Docker 기동 후 ngrok SSE 터널 → Claude.ai 연결 테스트
-- [ ] 5-2-3. Azure 배포 후 Claude.ai SSE 연결 E2E 테스트
-- [ ] 5-2-4. 자연어 입력 → 4개 Agent 순차 오케스트레이션 시나리오 검증
-- [ ] 5-2-5. 오케스트레이션 실패 시 에러 메시지 및 fallback 처리 확인
+  Claude.ai → Settings → Connectors → Add custom MCP
+  URL: https://<aca-fqdn>/sse
+  ```
+- [x] 5-2-2. 로컬 ngrok SSE 터널 → Claude.ai 연결 테스트 — 0-9 와 동일 (uv 직접 실행 + ngrok)
+- [x] 5-2-3. Azure 배포 후 Claude.ai SSE 연결 E2E 테스트 — ACA `simsasukgo-mcp` FQDN 으로 connector 등록 → 연결 성공 확인
+- [x] 5-2-4. 자연어 입력 → 4개 Agent 순차 오케스트레이션 시나리오 검증 — "기업 분석해줘 + 첨부파일" 한 줄로 create → collect → analyze → report 자율 호출 확인
+- [~] 5-2-5. ~~오케스트레이션 실패 시 에러 메시지 및 fallback 처리 확인~~
+  → `common/exceptions.py` 의 도메인 예외(ExternalApiError/StorageError/...) + `AgentStatus` 의 status=failed 기록은 구현. Tool 응답 fallback 메시지 표준화는 후속 (8-6 에러 케이스 테스트와 묶어 진행).
 
 ### 5-3. 보안 및 인증
 
 - [ ] 5-3-1. **Azure Key Vault** 도입 검토 (Storage 연결 문자열 · API 키 중앙 관리)
+  → 현재 ACA secret 으로 충분. Key Vault 는 운영 시점 별도 PR.
 - [ ] 5-3-2. MCP SSE 엔드포인트 인증 설정 (Bearer Token 또는 Azure AD 기반)
-- [ ] 5-3-3. 실 고객정보 · 개인정보 미사용 검증 (더미 데이터만 사용)
-- [ ] 5-3-4. MCP Tool 입력값 유효성 검증 (Pydantic strict 모드)
-- [ ] 5-3-5. 외부 API 호출 시 TLS 검증 강제 및 타임아웃 설정
+  → PoC 단계는 미구현 (FQDN 비공개 + Service Principal 기반 배포만). 운영 시점 별도 PR.
+- [x] 5-3-3. 실 고객정보 · 개인정보 미사용 검증 — CLAUDE.md 보안 원칙으로 강제, 모든 테스트/데모는 더미 기업명 사용
+- [~] 5-3-4. ~~MCP Tool 입력값 유효성 검증 (Pydantic strict 모드)~~
+  → 모든 schemas.py 가 `Field(min_length=, max_length=, ge=, le=)` 로 필드 단위 검증. `model_config = ConfigDict(strict=True)` 명시 도입은 후속.
+- [~] 5-3-5. ~~외부 API 호출 시 TLS 검증 강제 및 타임아웃 설정~~
+  → Naver httpx 클라이언트는 명시 timeout (`Timeout(10.0, connect=5.0)`). Anthropic/Gmail 은 SDK 기본 (TLS 검증 + 합리적 timeout 내장). 명시 timeout 일괄 적용은 후속.
 
 ---
 
@@ -439,7 +433,7 @@ Claude.ai
 
 ## 9. 문서화 및 마무리
 
-- [ ] 9-1. `README.md` 작성 (서비스 개요, 로컬 Docker 실행 방법, Azure 배포 절차)
+- [x] 9-1. `README.md` 작성 — 서비스 개요 / 4-Agent 아키텍처 / 8개 Tool 카탈로그 / 디렉터리 구조 / 로컬 실행 / Azure 자동·수동 배포 / Claude.ai connector 등록 / Gmail OAuth / 데모 시나리오 / 기술 스택 / 보류 항목 정리
 - [ ] 9-2. Azure 리소스 구성 가이드 작성 (Storage Account · Container Apps · AI Search 설정 순서)
 - [ ] 9-3. 환경변수 목록 및 Azure Secrets 등록 방법 가이드
 - [ ] 9-4. Claude.ai MCP 연동 가이드 작성 (SSE URL 등록 방법, 연동 확인 절차)
