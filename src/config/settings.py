@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # Anthropic (재무 분석 Agent)
     anthropic_api_key: str = Field(default="")
     anthropic_model: str = Field(default="claude-haiku-4-5-20251001")
+    anthropic_max_tokens: int = Field(
+        default=8192,
+        description="financial agent max_tokens. section_insights 추가로 응답 길이 ↑ (PR2)",
+    )
     financial_samples_blob_prefix: str = Field(
         default="templates/financial_samples/",
         description="재무 분석 샘플 (.docx, .pdf) Blob prefix. startup 1회 로드 후 메모리 캐시",

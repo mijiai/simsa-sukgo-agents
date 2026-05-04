@@ -3,11 +3,30 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from src.common.constants import RiskLevel
+from src.common.constants import ReportSection, RiskLevel
 
 
 class AnalyzeRequest(BaseModel):
     job_id: str = Field(min_length=1, description="create_analysis_job 가 발급한 job_id")
+
+
+class SectionInsight(BaseModel):
+    """보고서 섹션 단위 분석 인사이트.
+
+    report agent 가 해당 섹션의 표 아래 bullet 으로 그대로 사용. financial 이 작성하고
+    report 는 렌더만 한다 (Option B 책임 분리).
+    """
+
+    section_id: ReportSection
+    table_id: str | None = Field(
+        default=None,
+        description="같은 섹션 내 여러 표 구분용 (예: '재무제표', '자산건전성')",
+    )
+    bullets: list[str] = Field(min_length=1, max_length=5)
+    cited_data_points: list[str] = Field(
+        default_factory=list,
+        description="bullet 의 근거가 된 수치/사실 (감사 추적용)",
+    )
 
 
 class AnalysisInputSummary(BaseModel):
@@ -15,6 +34,8 @@ class AnalysisInputSummary(BaseModel):
     lawsuit_count: int = 0
     uploaded_file_count: int = 0
     financial_years: list[int] = Field(default_factory=list)
+    extracted_table_count: int = 0
+    extracted_image_count: int = 0
 
 
 class ClaudeJudgment(BaseModel):
@@ -26,6 +47,7 @@ class ClaudeJudgment(BaseModel):
     key_risk_factors: list[str] = Field(default_factory=list)
     positive_signals: list[str] = Field(default_factory=list)
     data_gaps: list[str] = Field(default_factory=list)
+    section_insights: list[SectionInsight] = Field(default_factory=list)
 
 
 class AnalysisResult(BaseModel):
@@ -42,6 +64,7 @@ class AnalysisResult(BaseModel):
     key_risk_factors: list[str] = Field(default_factory=list)
     positive_signals: list[str] = Field(default_factory=list)
     data_gaps: list[str] = Field(default_factory=list)
+    section_insights: list[SectionInsight] = Field(default_factory=list)
     input_summary: AnalysisInputSummary
 
 
@@ -54,4 +77,5 @@ class AnalyzeResponse(BaseModel):
     risk_score: float
     key_risk_factors: list[str] = Field(default_factory=list)
     data_gaps: list[str] = Field(default_factory=list)
+    section_insights_count: int = 0
     output_blob_path: str
