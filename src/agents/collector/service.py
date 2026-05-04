@@ -1,15 +1,26 @@
 import json
+import re
 from datetime import UTC, datetime
+from typing import Any
 
 from src.agents.collector.clients import NaverNewsClient
+from src.agents.collector.extractors import extract_uploaded_file
 from src.agents.collector.internal_db import get_company_data
-from src.agents.collector.schemas import CollectRequest, CollectResponse
+from src.agents.collector.schemas import (
+    CollectRequest,
+    CollectResponse,
+    ExtractedDoc,
+    ExtractedImage,
+    ExtractedTable,
+)
 from src.config.logging import get_logger
 from src.storage.blob_store import BlobStore
 from src.storage.schemas import AgentName, JobStatus
 from src.storage.table_store import TableStore
 
 logger = get_logger(__name__)
+
+_YEAR_PATTERN = re.compile(r"(?<!\d)(20[1-3]\d)(?!\d)")  # 2010~2039 4자리
 
 
 def _input_prefix(job_id: str) -> str:
@@ -31,6 +42,75 @@ async def _list_uploaded_files(blob: BlobStore, job_id: str) -> list[str]:
     ]
 
 
+def _infer_financial_years(tables: list[ExtractedTable]) -> list[int]:
+    """columns 에서 4자리 연도 패턴 (2010~2039) 추출 → 정렬 + 중복 제거."""
+    years: set[int] = set()
+    for tbl in tables:
+        for col in tbl.columns:
+            for match in _YEAR_PATTERN.finditer(str(col)):
+                years.add(int(match.group(1)))
+    return sorted(years)
+
+
+async def _extract_all_uploads(
+    blob: BlobStore,
+    job_id: str,
+    uploaded_files: list[str],
+) -> tuple[list[ExtractedTable], list[ExtractedImage], list[ExtractedDoc]]:
+    """각 업로드 파일을 extract_uploaded_file 로 처리하고 종류별로 분류.
+
+    개별 파일 추출 실패는 warning 로그만 남기고 다음 파일로 진행. 전체 collect 는 실패 X.
+    """
+    tables: list[ExtractedTable] = []
+    images: list[ExtractedImage] = []
+    docs: list[ExtractedDoc] = []
+    prefix = _input_prefix(job_id)
+
+    for filename in uploaded_files:
+        blob_path = f"{prefix}{filename}"
+        try:
+            extracted = await extract_uploaded_file(blob, blob_path, filename)
+        except Exception as exc:
+            logger.warning(
+                "collect.extract.failed",
+                file=filename,
+                error=str(exc),
+            )
+            continue
+        if extracted is None:
+            logger.info("collect.extract.unsupported_skipped", file=filename)
+            continue
+
+        kind = extracted["kind"]
+        content = extracted["content"]
+        if kind == "xlsx":
+            for sheet in content:
+                tables.append(ExtractedTable(source_file=filename, **sheet))
+        elif kind == "pdf":
+            docs.append(
+                ExtractedDoc(
+                    source_file=filename,
+                    text=content["text"],
+                    page_count=content["page_count"],
+                    truncated=content["truncated"],
+                )
+            )
+            for tbl in content["tables"]:
+                tables.append(ExtractedTable(source_file=filename, **tbl))
+        elif kind == "image":
+            images.append(
+                ExtractedImage(
+                    source_file=filename,
+                    blob_path=content["blob_path"],
+                    suspected_role=content["suspected_role"],
+                    width=content["width"],
+                    height=content["height"],
+                )
+            )
+
+    return tables, images, docs
+
+
 async def collect_company_data_service(
     request: CollectRequest,
     blob: BlobStore,
@@ -47,6 +127,9 @@ async def collect_company_data_service(
 
     try:
         uploaded_files = await _list_uploaded_files(blob, request.job_id)
+        extracted_tables, extracted_images, extracted_docs = await _extract_all_uploads(
+            blob, request.job_id, uploaded_files
+        )
 
         company = await tables.companies.find_by_name(request.company_name)
         company_id = company.company_id if company else None
@@ -74,15 +157,20 @@ async def collect_company_data_service(
                 chars=len(internal_credit_data),
             )
 
-        raw_payload = {
+        financial_years = _infer_financial_years(extracted_tables)
+
+        raw_payload: dict[str, Any] = {
             "company_name": request.company_name,
             "company_id": company_id,
             "collected_at": datetime.now(UTC).isoformat(),
             "news": [article.model_dump(mode="json") for article in news],
             "lawsuits": [],
             "uploaded_files": uploaded_files,
-            "financial_years": [],
+            "financial_years": financial_years,
             "internal_credit_data": internal_credit_data,
+            "extracted_tables": [t.model_dump(mode="json") for t in extracted_tables],
+            "extracted_images": [i.model_dump(mode="json") for i in extracted_images],
+            "extracted_docs": [d.model_dump(mode="json") for d in extracted_docs],
         }
 
         raw_path = _raw_blob_path(request.job_id)
@@ -102,6 +190,10 @@ async def collect_company_data_service(
             job_id=request.job_id,
             news_count=len(news),
             files_count=len(uploaded_files),
+            extracted_tables=len(extracted_tables),
+            extracted_images=len(extracted_images),
+            extracted_docs=len(extracted_docs),
+            financial_years=financial_years,
         )
 
         return CollectResponse(
@@ -110,7 +202,11 @@ async def collect_company_data_service(
             company_id=company_id,
             news_count=len(news),
             uploaded_files=uploaded_files,
+            financial_years=financial_years,
             has_internal_credit_data=internal_credit_data is not None,
+            extracted_table_count=len(extracted_tables),
+            extracted_image_count=len(extracted_images),
+            extracted_doc_count=len(extracted_docs),
             output_blob_path=raw_path,
         )
 

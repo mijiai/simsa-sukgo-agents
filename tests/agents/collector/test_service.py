@@ -20,6 +20,9 @@ def _make_deps() -> tuple[MagicMock, MagicMock, MagicMock]:
     blob = MagicMock()
     blob.upload = AsyncMock()
     blob.list_prefix = AsyncMock(return_value=[])
+    # 기본값: 빈 bytes — extractor 가 raise 하면 _extract_all_uploads 가 catch+skip.
+    # extracted_* 검증이 필요한 테스트는 download 를 별도 override.
+    blob.download = AsyncMock(return_value=b"")
 
     tables = MagicMock()
     tables.jobs = MagicMock()
