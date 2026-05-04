@@ -128,7 +128,11 @@ async def test_analyze_success_writes_result_and_updates_status() -> None:
         "lawsuit_count": 0,
         "uploaded_file_count": 0,
         "financial_years": [],
+        "extracted_table_count": 0,
+        "extracted_image_count": 0,
     }
+    # section_insights 가 judgment 에 없으면 빈 리스트로 result 에 들어감 (하위 호환)
+    assert payload["section_insights"] == []
     assert upload_args.kwargs["content_type"] == "application/json"
 
     tables.agent_status.update_done.assert_awaited_once_with(

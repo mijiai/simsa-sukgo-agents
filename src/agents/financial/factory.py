@@ -11,6 +11,7 @@ def get_anthropic_client() -> AnthropicClient:
         _anthropic_client = AnthropicClient(
             api_key=settings.anthropic_api_key,
             model=settings.anthropic_model,
+            max_tokens=settings.anthropic_max_tokens,
         )
     return _anthropic_client
 
