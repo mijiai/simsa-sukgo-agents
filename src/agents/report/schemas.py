@@ -14,5 +14,7 @@ class ReportResponse(BaseModel):
     status: Literal["done"] = "done"
     risk_level: RiskLevel
     risk_score: float
-    report_url: str = Field(description="report.md 의 SAS URL (만료 있음)")
+    report_url: str = Field(description="report.md 의 SAS URL (만료 있음, 호환용)")
     report_blob_path: str
+    docx_url: str = Field(description="report.docx 의 SAS URL (만료 있음)")
+    docx_blob_path: str
