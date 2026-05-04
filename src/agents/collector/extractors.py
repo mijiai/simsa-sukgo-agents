@@ -7,12 +7,15 @@ financial agent 가 표 데이터를 직접 인용해 분석 bullet 을 작성�
 LLM Vision 미사용 (PR4 에서 옵션 추가 예정) — 비용/지연 회피.
 """
 
+from datetime import date, datetime
 from io import BytesIO
 from typing import Any
 
 import openpyxl
 import pdfplumber
+import xlrd
 from PIL import Image
+from xlrd import xldate_as_datetime
 
 from src.common.anthropic_client import AnthropicClient
 from src.config.logging import get_logger
@@ -23,7 +26,8 @@ logger = get_logger(__name__)
 XLSX_MAX_ROWS_PER_SHEET = 200
 PDF_MAX_TEXT_CHARS = 10000
 
-_XLSX_SUFFIXES = (".xlsx", ".xls")
+_XLSX_SUFFIX = ".xlsx"
+_XLS_SUFFIX = ".xls"
 _PDF_SUFFIX = ".pdf"
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")
 
@@ -42,6 +46,61 @@ def _suspect_image_role(filename: str) -> str:
 
 def _normalize_xlsx_row(row: tuple) -> list[Any]:
     return [None if cell is None else cell for cell in row]
+
+
+def _xls_cell_value(cell: xlrd.sheet.Cell, datemode: int) -> Any:
+    if cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK):
+        return None
+    if cell.ctype == xlrd.XL_CELL_DATE:
+        return xldate_as_datetime(cell.value, datemode)
+    if cell.ctype == xlrd.XL_CELL_NUMBER and float(cell.value).is_integer():
+        return int(cell.value)
+    return cell.value
+
+
+def _stringify_header(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    return str(value)
+
+
+async def extract_xls(blob: BlobStore, blob_path: str) -> list[dict[str, Any]]:
+    """레거시 .xls (binary) 시트별 구조화 추출. extract_xlsx 와 같은 포맷.
+
+    openpyxl 은 .xls 를 못 읽으므로 xlrd 사용 (financial/templates.py 와 동일 라이브러리).
+    """
+    data = await blob.download(blob_path)
+    wb = xlrd.open_workbook(file_contents=data)
+    sheets: list[dict[str, Any]] = []
+    for sheet in wb.sheets():
+        if sheet.nrows == 0:
+            continue
+        header = [_xls_cell_value(sheet.cell(0, c), wb.datemode) for c in range(sheet.ncols)]
+        columns = [_stringify_header(c) for c in header]
+
+        rows: list[list[Any]] = []
+        truncated = False
+        for r in range(1, sheet.nrows):
+            if len(rows) >= XLSX_MAX_ROWS_PER_SHEET:
+                truncated = True
+                break
+            rows.append(
+                [_xls_cell_value(sheet.cell(r, c), wb.datemode) for c in range(sheet.ncols)]
+            )
+
+        if not columns and not rows:
+            continue
+        sheets.append(
+            {
+                "sheet_name": sheet.name,
+                "columns": columns,
+                "rows": rows,
+                "truncated": truncated,
+            }
+        )
+    return sheets
 
 
 async def extract_xlsx(blob: BlobStore, blob_path: str) -> list[dict[str, Any]]:
@@ -220,8 +279,11 @@ async def extract_uploaded_file(
         {"kind": "xlsx"|"pdf"|"image", "filename": str, "content": ...} or None
     """
     lower = original_filename.lower()
-    if lower.endswith(_XLSX_SUFFIXES):
+    if lower.endswith(_XLSX_SUFFIX):
         content = await extract_xlsx(blob, blob_path)
+        return {"kind": "xlsx", "filename": original_filename, "content": content}
+    if lower.endswith(_XLS_SUFFIX):
+        content = await extract_xls(blob, blob_path)
         return {"kind": "xlsx", "filename": original_filename, "content": content}
     if lower.endswith(_PDF_SUFFIX):
         content = await extract_pdf(blob, blob_path)
