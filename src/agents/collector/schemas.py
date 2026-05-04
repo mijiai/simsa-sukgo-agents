@@ -32,13 +32,17 @@ class ExtractedTable(BaseModel):
 
 
 class ExtractedImage(BaseModel):
-    """업로드된 이미지의 메타데이터 + 휴리스틱 역할 분류 (LLM Vision 미사용)."""
+    """업로드된 이미지의 메타데이터 + 휴리스틱 역할 분류.
+
+    PR4 부터 caption 필드 추가 — IMAGE_VISION_ENABLED=true 시 collector 가 Vision API 로 채움.
+    """
 
     source_file: str
     blob_path: str
     suspected_role: str = "unknown"  # ownership_chart / product_catalog / unknown
     width: int | None = None
     height: int | None = None
+    caption: str | None = None
 
 
 class ExtractedDoc(BaseModel):

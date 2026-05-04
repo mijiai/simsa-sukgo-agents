@@ -4,7 +4,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from src.agents.collector.clients import NaverNewsClient
-from src.agents.collector.extractors import extract_uploaded_file
+from src.agents.collector.extractors import (
+    caption_image_with_vision,
+    extract_uploaded_file,
+)
 from src.agents.collector.internal_db import get_company_data
 from src.agents.collector.schemas import (
     CollectRequest,
@@ -13,6 +16,7 @@ from src.agents.collector.schemas import (
     ExtractedImage,
     ExtractedTable,
 )
+from src.common.anthropic_client import AnthropicClient
 from src.config.logging import get_logger
 from src.storage.blob_store import BlobStore
 from src.storage.schemas import AgentName, JobStatus
@@ -56,10 +60,15 @@ async def _extract_all_uploads(
     blob: BlobStore,
     job_id: str,
     uploaded_files: list[str],
+    *,
+    vision_anthropic: AnthropicClient | None = None,
+    vision_model: str | None = None,
 ) -> tuple[list[ExtractedTable], list[ExtractedImage], list[ExtractedDoc]]:
     """각 업로드 파일을 extract_uploaded_file 로 처리하고 종류별로 분류.
 
     개별 파일 추출 실패는 warning 로그만 남기고 다음 파일로 진행. 전체 collect 는 실패 X.
+
+    vision_anthropic 가 주어지면 이미지마다 Vision API 1회 호출해 caption 생성 (PR4).
     """
     tables: list[ExtractedTable] = []
     images: list[ExtractedImage] = []
@@ -98,6 +107,21 @@ async def _extract_all_uploads(
             for tbl in content["tables"]:
                 tables.append(ExtractedTable(source_file=filename, **tbl))
         elif kind == "image":
+            caption: str | None = None
+            if vision_anthropic is not None:
+                caption = await caption_image_with_vision(
+                    blob,
+                    content["blob_path"],
+                    filename,
+                    vision_anthropic,
+                    model=vision_model,
+                )
+                if caption:
+                    logger.info(
+                        "collect.image.captioned",
+                        file=filename,
+                        chars=len(caption),
+                    )
             images.append(
                 ExtractedImage(
                     source_file=filename,
@@ -105,6 +129,7 @@ async def _extract_all_uploads(
                     suspected_role=content["suspected_role"],
                     width=content["width"],
                     height=content["height"],
+                    caption=caption,
                 )
             )
 
@@ -116,6 +141,9 @@ async def collect_company_data_service(
     blob: BlobStore,
     tables: TableStore,
     naver: NaverNewsClient,
+    *,
+    vision_anthropic: AnthropicClient | None = None,
+    vision_model: str | None = None,
 ) -> CollectResponse:
     await tables.jobs.update_status(
         request.job_id,
@@ -128,7 +156,11 @@ async def collect_company_data_service(
     try:
         uploaded_files = await _list_uploaded_files(blob, request.job_id)
         extracted_tables, extracted_images, extracted_docs = await _extract_all_uploads(
-            blob, request.job_id, uploaded_files
+            blob,
+            request.job_id,
+            uploaded_files,
+            vision_anthropic=vision_anthropic,
+            vision_model=vision_model,
         )
 
         company = await tables.companies.find_by_name(request.company_name)

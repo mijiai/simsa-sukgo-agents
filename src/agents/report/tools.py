@@ -49,5 +49,7 @@ def register_report_tools(mcp: FastMCP) -> None:
             get_table_store(),
             get_report_anthropic_client(),
             sas_expiry_hours=settings.report_sas_expiry_hours,
+            base_docx_blob_path=settings.report_base_docx_blob_path,
+            appendix_row_threshold=settings.appendix_row_threshold,
         )
         return response.model_dump()
