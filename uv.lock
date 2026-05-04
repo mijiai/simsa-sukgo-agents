@@ -2338,6 +2338,7 @@ dependencies = [
     { name = "pypdf" },
     { name = "python-docx" },
     { name = "python-dotenv" },
+    { name = "pyyaml" },
     { name = "structlog" },
     { name = "xlrd" },
 ]
@@ -2372,6 +2373,7 @@ requires-dist = [
     { name = "pypdf", specifier = ">=6.10.2" },
     { name = "python-docx", specifier = ">=1.2.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "structlog", specifier = ">=25.5.0" },
     { name = "xlrd", specifier = ">=2.0" },
 ]
