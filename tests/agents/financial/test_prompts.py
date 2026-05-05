@@ -126,3 +126,23 @@ def test_user_prompt_truncates_huge_internal_credit_data() -> None:
     out = build_user_prompt(company_name="ACME", raw=raw)
     assert "INTERNAL_TAIL" not in out
     assert "B" * 100 in out
+
+
+def test_extracted_docs_label_distinguishes_pdf_from_xls_text() -> None:
+    """page_count>0 → PDF 라벨, =0 → 파일명만 (xls/xlsx text fallback)."""
+    raw = {
+        "news": [],
+        "lawsuits": [],
+        "uploaded_files": [],
+        "financial_years": [],
+        "extracted_docs": [
+            {"source_file": "사업계획서.pdf", "text": "PDF 본문 PDFBODY", "page_count": 5},
+            {"source_file": "credit.xls", "text": "상호 | 회사 XLSBODY", "page_count": 0},
+        ],
+    }
+    out = build_user_prompt(company_name="ACME", raw=raw)
+    assert "사업계획서.pdf (PDF, 5쪽)" in out
+    assert "credit.xls" in out
+    assert "credit.xls (PDF" not in out  # PDF 라벨 안 붙어야 함
+    assert "PDFBODY" in out
+    assert "XLSBODY" in out

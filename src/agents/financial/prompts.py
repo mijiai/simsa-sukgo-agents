@@ -152,7 +152,10 @@ def _format_extracted_docs(docs: list[dict[str, Any]]) -> str:
         text = (doc.get("text") or "")[:_DOC_TEXT_TRUNCATE]
         if not text:
             continue
-        parts.append(f"--- {source_file} (PDF, {doc.get('page_count', 0)}쪽) ---\n{text}")
+        page_count = doc.get("page_count", 0) or 0
+        # page_count>0 → PDF, =0 → xls/xlsx text fallback (collector 가 page_count=0 으로 설정)
+        label = f"{source_file} (PDF, {page_count}쪽)" if page_count else source_file
+        parts.append(f"--- {label} ---\n{text}")
     return "\n\n".join(parts) if parts else _NO_EXTRACTED_DOCS_NOTICE
 
 

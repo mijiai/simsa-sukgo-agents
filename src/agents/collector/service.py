@@ -95,6 +95,17 @@ async def _extract_all_uploads(
         if kind == "xlsx":
             for sheet in content:
                 tables.append(ExtractedTable(source_file=filename, **sheet))
+            # sparse 시트 (PDF 인쇄용 .xls 등) 는 dispatcher 가 doc_text 로 fallback
+            doc_text = extracted.get("doc_text")
+            if doc_text:
+                docs.append(
+                    ExtractedDoc(
+                        source_file=filename,
+                        text=doc_text,
+                        page_count=0,  # sheet 수는 의미 없음 — 0 으로 통일
+                        truncated=False,
+                    )
+                )
         elif kind == "pdf":
             docs.append(
                 ExtractedDoc(

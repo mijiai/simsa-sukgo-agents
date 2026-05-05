@@ -19,9 +19,10 @@
 #   - 프로젝트 루트에 .env (AZURE_STORAGE_CONNECTION_STRING 포함)
 #
 # 환경변수 override (선택):
-#   CORS_ORIGINS      — 공백 구분 origin 목록 (default: claude.ai 도메인들)
+#   CORS_ORIGINS      — 공백 또는 콤마 구분 origin 목록
+#                       (default: claude.ai + Vercel frontend 도메인들)
 #   CORS_MAX_AGE      — preflight 캐시 초 (default: 3600)
-#   CORS_METHODS      — 공백 구분 메서드 (default: PUT GET HEAD)
+#   CORS_METHODS      — 공백 또는 콤마 구분 메서드 (default: PUT GET HEAD)
 
 set -euo pipefail
 
@@ -29,11 +30,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="${ENV_FILE:-$PROJECT_ROOT/.env}"
 
-# Default: claude.ai chat + artifact iframe sandbox origins.
-# 추가 origin (예: 자체 호스팅 프론트) 필요 시 CORS_ORIGINS env 로 override.
-CORS_ORIGINS="${CORS_ORIGINS:-https://claude.ai https://*.claude.ai}"
+# Default: claude.ai (artifact iframe) + Vercel (자체 프론트엔드) + localhost (개발).
+# 추가 / 변경이 필요하면 CORS_ORIGINS env 로 override.
+# 구분자는 공백 또는 콤마 둘 다 허용 (사용자 편의).
+# Note: localhost 는 http (https 아님) — Next.js dev server 기본.
+CORS_ORIGINS="${CORS_ORIGINS:-https://claude.ai https://*.claude.ai https://simsasukgo-frontend.vercel.app https://*.vercel.app http://localhost:3000}"
 CORS_MAX_AGE="${CORS_MAX_AGE:-3600}"
 CORS_METHODS="${CORS_METHODS:-PUT GET HEAD}"
+
+# 콤마 → 공백으로 정규화 (env 입력 형식 자유)
+CORS_ORIGINS="${CORS_ORIGINS//,/ }"
+CORS_METHODS="${CORS_METHODS//,/ }"
 
 log() { printf "\033[1;34m==>\033[0m %s\n" "$*"; }
 err() { printf "\033[1;31m[err]\033[0m %s\n" "$*" >&2; }

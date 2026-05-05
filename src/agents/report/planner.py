@@ -32,6 +32,12 @@ PLANNER_SYSTEM_PROMPT = """당신은 여신 심사 보고서 데이터 매핑 �
 2. 자료가 없거나 적합한 표를 찾지 못하면 해당 슬롯에 "data_gap": true 로 표시.
 3. 표 데이터는 raw.extracted_tables 에서 가장 적합한 것을 선택해
    columns/rows 를 그대로 인용 (값 변경 금지).
+3-1. extracted_tables 가 비었거나 적합한 표가 없으면 raw.extracted_docs[].text
+   에서 직접 columns/rows 를 구성하세요. 이 텍스트는
+   "라벨 | 값1 | 값2 | ..." 형식으로 시트별로 정리되어 있어 신용보고서 .xls 의
+   다단 레이아웃도 거의 그대로 읽을 수 있습니다. 단, 텍스트에 명시된 값만
+   사용하고 새 숫자나 라벨을 만들지 마세요. 텍스트가 ` | ` 로 잘려있으면 그
+   분리된 셀을 columns/rows 의 셀로 그대로 매핑하세요.
 4. 새 숫자나 사실을 만들지 않습니다. 추출되지 않은 수치는 절대 채우지 않습니다.
 5. 이미지 슬롯의 blob_path 는 raw.extracted_images[].blob_path 를 그대로 사용.
    suspected_role 이 일치하는 이미지가 없으면 data_gap=true.
@@ -140,11 +146,23 @@ def _summarize_section_insights(insights: list[dict[str, Any]]) -> list[dict[str
     ]
 
 
+def _summarize_extracted_docs(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """planner 에게 docs 의 텍스트를 그대로 노출 (PDF 인쇄용 .xls 의 fallback 데이터)."""
+    return [
+        {
+            "source_file": d.get("source_file"),
+            "text": d.get("text") or "",
+        }
+        for d in docs
+    ]
+
+
 def build_planner_user_prompt(
     template: ReportTemplate, raw: dict[str, Any], analysis: dict[str, Any]
 ) -> str:
     template_summary = _summarize_template(template)
     extracted_summary = _summarize_extracted_tables(raw.get("extracted_tables") or [])
+    docs_summary = _summarize_extracted_docs(raw.get("extracted_docs") or [])
     images = raw.get("extracted_images") or []
     insights_summary = _summarize_section_insights(analysis.get("section_insights") or [])
 
@@ -155,6 +173,9 @@ def build_planner_user_prompt(
 [raw.extracted_tables — 채울 수 있는 표 데이터]
 {json.dumps(extracted_summary, ensure_ascii=False, indent=2)}
 
+[raw.extracted_docs — 표 추출 실패 시 fallback 으로 쓸 시트 텍스트]
+{json.dumps(docs_summary, ensure_ascii=False, indent=2)}
+
 [raw.extracted_images — 채울 수 있는 이미지]
 {json.dumps(images, ensure_ascii=False, indent=2)}
 
@@ -164,6 +185,8 @@ def build_planner_user_prompt(
 위 자료를 바탕으로 PLANNER_SYSTEM_PROMPT 의 JSON 스키마에 맞춰 매핑만 출력하세요.
 extracted_tables 의 row 는 truncated 되어 보입니다 — 실제 매핑 시에는 raw.extracted_tables[i].rows
 전체를 그대로 인용한다고 가정하고, 'columns' 와 'rows' 를 알려주세요. 값 변경 금지.
+extracted_tables 가 비었거나 적합한 표가 없으면 extracted_docs 의 text 에서
+직접 columns/rows 를 구성하세요 (규칙 3-1 참고).
 """
 
 
