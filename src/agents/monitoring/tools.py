@@ -6,11 +6,13 @@ from src.agents.monitoring.factory import get_gmail_client
 from src.agents.monitoring.run_service import monitor_run_now_service
 from src.agents.monitoring.schemas import (
     MonitorDeregisterRequest,
+    MonitorGetLatestSnapshotRequest,
     MonitorRegisterRequest,
     MonitorRunNowRequest,
 )
 from src.agents.monitoring.service import (
     monitor_deregister_service,
+    monitor_get_latest_snapshot_service,
     monitor_list_service,
     monitor_register_service,
 )
@@ -131,3 +133,38 @@ def register_monitoring_tools(mcp: FastMCP) -> None:
             settings=get_settings(),
         )
         return response.model_dump()
+
+    @mcp.tool()
+    async def monitor_get_latest_snapshot(company_id: str) -> dict:
+        """
+        모니터링 상세 페이지 mount 시 1회 호출용 — 가장 최근 monitor_run_now
+        결과의 풀 payload (snapshot.json) 를 그대로 반환.
+
+        monitor_list 는 가벼운 채로 유지하고 (last_run_at, last_risk_level 만),
+        상세 진입 시 이 도구로 한 건만 fetch 하도록 분리.
+
+        사용 시점:
+        - frontend 의 모니터링 상세 페이지 mount 직후
+
+        입력:
+        - company_id: MonitoringTargets 에 등록된 company_id
+
+        출력:
+        - company_id, company_name, available
+        - available=True 일 때만:
+          run_at, run_date, analysis_job_id, risk_level, risk_score,
+          previous_risk_level, risk_changed,
+          summary, key_risk_factors, positive_signals, data_gaps,
+          news_count, lawsuit_count, news_top_titles, model, snapshot_blob_path
+
+        실패 시:
+        - 대상 미등록: EntityNotFoundError (404 의미)
+        - snapshot 한 번도 안 돈 경우: available=False (에러 X)
+        - blob 다운로드 실패: Table 메타로 best-effort 응답 (available=True,
+          evidence list 들 빈 채로)
+        """
+        request = MonitorGetLatestSnapshotRequest(company_id=company_id)
+        response = await monitor_get_latest_snapshot_service(
+            request, get_table_store(), get_blob_store()
+        )
+        return response.model_dump(mode="json")

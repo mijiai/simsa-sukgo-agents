@@ -55,8 +55,9 @@ create_analysis_job  →  job_id
 | 4 | `report_generate` | Report | `job_id` | `report_url` (SAS, 7일) |
 | 5 | `monitor_register` | Monitoring | `company_id`, `recipient_email` | 등록 결과 |
 | 6 | `monitor_deregister` | Monitoring | `company_id` | soft delete 결과 |
-| 7 | `monitor_list` | Monitoring | — | 활성 대상 목록 |
+| 7 | `monitor_list` | Monitoring | — | 활성 대상 목록 (경량) |
 | 8 | `monitor_run_now` | Monitoring | `company_id` | 즉시 1회 재분석 + 알림 판정 |
+| 9 | `monitor_get_latest_snapshot` | Monitoring | `company_id` | 상세 페이지 mount 시 최근 snapshot 풀 반환 |
 
 각 Tool 은 `tools.py` 에서 얇게 등록되고 비즈니스 로직은 `service.py` 에 둔다 (CLAUDE.md 규칙).
 
