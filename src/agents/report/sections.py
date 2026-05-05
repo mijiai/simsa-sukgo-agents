@@ -45,6 +45,10 @@ class SectionContent(BaseModel):
     section_id: ReportSection
     number: str
     title: str
+    # 섹션 헤딩 바로 아래에 들어갈 서술형 paragraph(s).
+    # narrative writer LLM 이 작성 — 표/bullet 의 근거 데이터를 글로 풀어냄.
+    # 빈 문자열이면 narrative 출력 생략 (renderer 가 무시).
+    narrative: str = ""
     tables: list[TableContent] = Field(default_factory=list)
     images: list[ImageContent] = Field(default_factory=list)
     # table_id=None 인 insights — 섹션 일반 bullet
@@ -110,12 +114,14 @@ def build_section_content(
     spec: SectionSpec,
     plan_section: PlannedSection,
     section_insights: list[SectionInsight],
+    narrative: str = "",
 ) -> SectionContent:
     """1개 섹션의 컨텐츠를 조립.
 
     table_id 가 매칭되는 insight 가 있으면 그 bullet 을 표 아래에 배치.
     table_id=None 인 insight 는 section_bullets 로 분리.
     매칭되는 insight 없는 표는 bullets=[] (표만 표시).
+    narrative — narrative writer LLM 이 작성한 서술형 paragraph(s); 빈 문자열이면 생략.
     """
     tables: list[TableContent] = []
     for table_spec in spec.tables:
@@ -154,6 +160,7 @@ def build_section_content(
         section_id=spec.section_id,
         number=spec.number,
         title=spec.title,
+        narrative=narrative,
         tables=tables,
         images=images,
         section_bullets=section_bullets,

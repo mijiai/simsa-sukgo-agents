@@ -213,3 +213,68 @@ def test_render_markdown_section_bullets_appended() -> None:
     md = render_report_markdown(template, sections)
     assert "- 전체 위험 MEDIUM" in md
     assert "- 추가 자료 확인 필요" in md
+
+
+# ───────────────────── narrative paragraph ─────────────────────
+
+
+def test_render_markdown_narrative_appears_above_tables() -> None:
+    """narrative 가 섹션 헤딩 다음 + 표보다 앞에 출력."""
+    template = load_template("loan_application_v1")
+    section = _section_with_table()
+    section.narrative = "동사는 '24년 자산 1,200억원 기록함. 전년 대비 200억원 증가."
+    sections = {ReportSection.FINANCE: section}
+    md = render_report_markdown(template, sections)
+    # heading → narrative → table 순서
+    h_idx = md.index("# 5. 재무 현황")
+    n_idx = md.index("동사는 '24년 자산")
+    t_idx = md.index("**주요 재무제표 추이**")
+    assert h_idx < n_idx < t_idx
+
+
+def test_render_markdown_narrative_split_by_blank_line() -> None:
+    """\\n\\n 구분 paragraph 가 markdown 에서도 별도 줄로 분리."""
+    template = load_template("loan_application_v1")
+    section = _section_with_table()
+    section.narrative = "첫 paragraph 본문.\n\n둘째 paragraph 본문."
+    sections = {ReportSection.FINANCE: section}
+    md = render_report_markdown(template, sections)
+    assert "첫 paragraph 본문." in md
+    assert "둘째 paragraph 본문." in md
+
+
+def test_render_markdown_no_narrative_block_when_empty() -> None:
+    """narrative 가 빈 문자열이면 출력 자체 생략."""
+    template = load_template("loan_application_v1")
+    section = _section_with_table()
+    # narrative default = ""
+    sections = {ReportSection.FINANCE: section}
+    md = render_report_markdown(template, sections)
+    # heading 바로 다음에 빈 줄 / table 만 있어야 함 (유사 본문 텍스트 없음)
+    after_heading = md.split("# 5. 재무 현황", 1)[1].split("**주요 재무제표 추이**", 1)[0]
+    # 빈 문자열 또는 공백/개행만 — 실제 prose 가 끼어있지 않은지 확인
+    assert "본문" not in after_heading
+    assert after_heading.strip() == ""
+
+
+async def test_render_docx_includes_narrative_paragraph() -> None:
+    """docx 본문에 narrative 가 paragraph 로 들어가는지 (round-trip 확인)."""
+    template = load_template("loan_application_v1")
+    section = _section_with_table()
+    section.narrative = "DOCX_NARRATIVE_MARKER 동사는 안정적인 수익성 보유 중."
+    sections = {ReportSection.FINANCE: section}
+    docx_bytes = await render_report_docx(template, sections)
+    doc = Document(BytesIO(docx_bytes))
+    body_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "DOCX_NARRATIVE_MARKER" in body_text
+
+
+async def test_render_docx_no_narrative_when_empty() -> None:
+    template = load_template("loan_application_v1")
+    section = _section_with_table()
+    sections = {ReportSection.FINANCE: section}
+    docx_bytes = await render_report_docx(template, sections)
+    doc = Document(BytesIO(docx_bytes))
+    body_text = "\n".join(p.text for p in doc.paragraphs)
+    # 표 제목/bullet 외에 narrative 형 prose 가 없어야 함
+    assert "DOCX_NARRATIVE_MARKER" not in body_text
