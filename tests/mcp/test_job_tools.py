@@ -9,9 +9,11 @@ from src.mcp.job_tools import (
     CreateAnalysisJobRequest,
     CreateUploadUrlRequest,
     InputFile,
+    ListAnalysisJobsRequest,
     _sanitize_filename,
     create_analysis_job_service,
     create_upload_url_service,
+    list_analysis_jobs_service,
 )
 from src.storage.schemas import AgentName, Company, JobStatus
 
@@ -305,3 +307,87 @@ def test_create_upload_url_request_validates_filename_length() -> None:
         CreateUploadUrlRequest(filename="")
     with pytest.raises(ValidationError):
         CreateUploadUrlRequest(filename="x" * 256)
+
+
+# ===== list_analysis_jobs =====
+
+
+from src.common.constants import RiskLevel  # noqa: E402
+from src.storage.schemas import AnalysisJob  # noqa: E402
+
+
+def _job(
+    job_id: str,
+    *,
+    company_id: str | None = "comp-1",
+    user_id: str | None = "user-1",
+    status: JobStatus = JobStatus.DONE,
+    risk_level: RiskLevel | None = RiskLevel.MEDIUM,
+    created_at: datetime | None = None,
+) -> AnalysisJob:
+    base = created_at or datetime(2026, 4, 28, 10, 0, tzinfo=UTC)
+    return AnalysisJob(
+        job_id=job_id,
+        company_name="ACME",
+        company_id=company_id,
+        user_id=user_id,
+        status=status,
+        risk_level=risk_level,
+        created_at=base,
+        updated_at=base,
+    )
+
+
+def _make_tables_for_list(
+    list_filtered_return: tuple[list[AnalysisJob], int],
+) -> MagicMock:
+    tables = MagicMock()
+    tables.jobs = MagicMock()
+    tables.jobs.list_filtered = AsyncMock(return_value=list_filtered_return)
+    return tables
+
+
+async def test_list_jobs_propagates_filter_args_to_repo() -> None:
+    tables = _make_tables_for_list(([], 0))
+    request = ListAnalysisJobsRequest(user_id="user-1", status=JobStatus.DONE, limit=10, offset=20)
+    await list_analysis_jobs_service(request, tables)
+    tables.jobs.list_filtered.assert_awaited_once_with(
+        user_id="user-1", status=JobStatus.DONE, limit=10, offset=20
+    )
+
+
+async def test_list_jobs_maps_jobs_to_listed_items_with_total() -> None:
+    jobs = [
+        _job("j-1", risk_level=RiskLevel.HIGH),
+        _job("j-2", risk_level=None),
+    ]
+    tables = _make_tables_for_list((jobs, 7))  # 전체 7건 중 2건 페이지
+    request = ListAnalysisJobsRequest(limit=2, offset=0)
+    response = await list_analysis_jobs_service(request, tables)
+
+    assert response.total == 7
+    assert response.limit == 2
+    assert response.offset == 0
+    assert len(response.jobs) == 2
+    assert response.jobs[0].job_id == "j-1"
+    assert response.jobs[0].risk_level is RiskLevel.HIGH
+    assert response.jobs[0].company_id == "comp-1"
+    assert response.jobs[1].job_id == "j-2"
+    assert response.jobs[1].risk_level is None
+
+
+async def test_list_jobs_empty_result_returns_zero_total() -> None:
+    tables = _make_tables_for_list(([], 0))
+    request = ListAnalysisJobsRequest()
+    response = await list_analysis_jobs_service(request, tables)
+    assert response.total == 0
+    assert response.jobs == []
+
+
+def test_list_jobs_request_validates_limit_range() -> None:
+    with pytest.raises(ValidationError):
+        ListAnalysisJobsRequest(limit=0)
+    with pytest.raises(ValidationError):
+        ListAnalysisJobsRequest(limit=201)
+    with pytest.raises(ValidationError):
+        ListAnalysisJobsRequest(offset=-1)

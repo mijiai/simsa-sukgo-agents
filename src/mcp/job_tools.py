@@ -8,6 +8,7 @@ from uuid import uuid4
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
+from src.common.constants import RiskLevel
 from src.config.logging import get_logger
 from src.config.settings import get_settings
 from src.storage.blob_store import BlobStore
@@ -63,6 +64,36 @@ class CreateUploadUrlResponse(BaseModel):
     blob_path: str
     expires_at: datetime
     required_headers: dict[str, str]
+
+
+class ListAnalysisJobsRequest(BaseModel):
+    user_id: str | None = Field(default=None, description="요청 사용자 필터; None 이면 전체")
+    status: JobStatus | None = Field(
+        default=None, description="JobStatus filter (예: 'done', 'collecting'). None 이면 전체"
+    )
+    limit: int = Field(default=50, ge=1, le=200)
+    offset: int = Field(default=0, ge=0)
+
+
+class ListedAnalysisJob(BaseModel):
+    job_id: str
+    company_id: str | None = None
+    company_name: str
+    status: JobStatus
+    user_id: str | None = None
+    risk_level: RiskLevel | None = None
+    current_agent: AgentName | None = None
+    created_at: datetime
+    updated_at: datetime
+    finished_at: datetime | None = None
+    report_blob_path: str | None = None
+
+
+class ListAnalysisJobsResponse(BaseModel):
+    jobs: list[ListedAnalysisJob] = Field(default_factory=list)
+    total: int = Field(ge=0, description="필터 후 전체 매치 count (페이지 슬라이스 전)")
+    limit: int
+    offset: int
 
 
 def _sanitize_filename(filename: str) -> str:
@@ -154,6 +185,7 @@ async def create_analysis_job_service(
         AnalysisJob(
             job_id=job_id,
             company_name=request.company_name,
+            company_id=company_id,
             user_id=request.user_id,
             status=JobStatus.PENDING,
             custom_prompt=request.custom_prompt,
@@ -231,6 +263,44 @@ def create_upload_url_service(
         blob_path=blob_path,
         expires_at=expires_at,
         required_headers=required_headers,
+    )
+
+
+async def list_analysis_jobs_service(
+    request: ListAnalysisJobsRequest,
+    tables: TableStore,
+) -> ListAnalysisJobsResponse:
+    jobs, total = await tables.jobs.list_filtered(
+        user_id=request.user_id,
+        status=request.status,
+        limit=request.limit,
+        offset=request.offset,
+    )
+    items = [
+        ListedAnalysisJob(
+            job_id=j.job_id,
+            company_id=j.company_id,
+            company_name=j.company_name,
+            status=j.status,
+            user_id=j.user_id,
+            risk_level=j.risk_level,
+            current_agent=j.current_agent,
+            created_at=j.created_at,
+            updated_at=j.updated_at,
+            finished_at=j.finished_at,
+            report_blob_path=j.report_blob_path,
+        )
+        for j in jobs
+    ]
+    logger.info(
+        "list_analysis_jobs.done",
+        total=total,
+        returned=len(items),
+        user_id=request.user_id,
+        status=request.status.value if request.status else None,
+    )
+    return ListAnalysisJobsResponse(
+        jobs=items, total=total, limit=request.limit, offset=request.offset
     )
 
 
@@ -330,4 +400,44 @@ def register_job_tools(mcp: FastMCP) -> None:
             expiry_minutes=settings.upload_sas_expiry_minutes,
             upload_prefix=settings.upload_blob_prefix,
         )
+        return response.model_dump(mode="json")
+
+    @mcp.tool()
+    async def list_analysis_jobs(
+        user_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict:
+        """
+        분석 Job 목록 조회 — frontend 의 list 페이지 mount 시 사용.
+
+        사용 시점:
+        - 사용자 dashboard / "내 분석 목록" 페이지 mount
+
+        입력:
+        - user_id: 옵션. 지정 시 해당 사용자 Job 만 (전체는 None)
+        - status: 옵션. JobStatus 값 ('pending', 'collecting', 'analyzing',
+          'reporting', 'done', 'failed'). 전체는 None
+        - limit: 1~200, default 50
+        - offset: pagination, default 0
+
+        출력:
+        - jobs: [{ job_id, company_id, company_name, status, user_id,
+                   risk_level, current_agent, created_at, updated_at,
+                   finished_at, report_blob_path }]
+                created_at DESC 정렬.
+        - total: 필터 후 전체 매치 count (페이지 슬라이스 전 — pagination 표시용)
+        - limit, offset: 입력 그대로 echo
+
+        주의:
+        - 응답에 job 본문 데이터 (collect/raw, analyze/result 등) 는 포함 X.
+          상세는 별도 도구로 (예: monitor 의 monitor_get_latest_snapshot 패턴).
+        - PoC 구현은 메모리 sort/slice — 운영 규모 큰 데이터셋이면 별도 인덱스 필요.
+        """
+        status_enum = JobStatus(status) if status else None
+        request = ListAnalysisJobsRequest(
+            user_id=user_id, status=status_enum, limit=limit, offset=offset
+        )
+        response = await list_analysis_jobs_service(request, get_table_store())
         return response.model_dump(mode="json")
