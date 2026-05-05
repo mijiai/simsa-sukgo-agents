@@ -7,9 +7,11 @@ from pydantic import ValidationError
 
 from src.mcp.job_tools import (
     CreateAnalysisJobRequest,
+    CreateUploadUrlRequest,
     InputFile,
     _sanitize_filename,
     create_analysis_job_service,
+    create_upload_url_service,
 )
 from src.storage.schemas import AgentName, Company, JobStatus
 
@@ -173,3 +175,74 @@ def test_create_request_validation() -> None:
     too_many_files = [InputFile(filename=f"f{i}.bin", content_base64="YQ==") for i in range(21)]
     with pytest.raises(ValidationError):
         CreateAnalysisJobRequest(company_name="x", files=too_many_files)
+
+
+def _make_upload_blob() -> MagicMock:
+    blob = MagicMock()
+    blob.generate_upload_sas_url = MagicMock(
+        return_value=(
+            "https://acc.blob.core.windows.net/c/uploads/U/재무.xls?sig=X&se=...&sp=cw",
+            datetime(2026, 5, 4, 9, 15, tzinfo=UTC),
+        )
+    )
+    return blob
+
+
+def test_create_upload_url_returns_isolated_path_and_required_headers() -> None:
+    blob = _make_upload_blob()
+    request = CreateUploadUrlRequest(filename="재무.xls")
+    response = create_upload_url_service(
+        request, blob, expiry_minutes=15, upload_prefix="uploads/"
+    )
+
+    assert response.blob_path.startswith("uploads/")
+    assert response.blob_path.endswith("/재무.xls")
+    # 격리: filename 외에 uuid 1단계가 끼어있어야 함
+    parts = response.blob_path.split("/")
+    assert len(parts) == 3 and parts[0] == "uploads" and parts[1] != ""
+
+    assert response.upload_url.startswith("https://")
+    assert response.required_headers == {"x-ms-blob-type": "BlockBlob"}
+    assert response.expires_at == datetime(2026, 5, 4, 9, 15, tzinfo=UTC)
+
+    blob.generate_upload_sas_url.assert_called_once()
+    call_kwargs = blob.generate_upload_sas_url.call_args
+    assert call_kwargs.args[0] == response.blob_path
+    assert call_kwargs.kwargs == {"content_type": None}
+
+
+def test_create_upload_url_includes_content_type_header_when_given() -> None:
+    blob = _make_upload_blob()
+    request = CreateUploadUrlRequest(
+        filename="x.pdf", content_type="application/pdf"
+    )
+    response = create_upload_url_service(
+        request, blob, expiry_minutes=15, upload_prefix="uploads/"
+    )
+
+    assert response.required_headers == {
+        "x-ms-blob-type": "BlockBlob",
+        "Content-Type": "application/pdf",
+    }
+    blob.generate_upload_sas_url.assert_called_once()
+    assert blob.generate_upload_sas_url.call_args.kwargs == {
+        "content_type": "application/pdf"
+    }
+
+
+def test_create_upload_url_sanitizes_path_traversal_in_filename() -> None:
+    blob = _make_upload_blob()
+    request = CreateUploadUrlRequest(filename="../../etc/passwd")
+    response = create_upload_url_service(
+        request, blob, expiry_minutes=15, upload_prefix="uploads/"
+    )
+    # basename 만 살아남아야 함; '..' 으로 prefix 탈출 불가
+    assert "/passwd" in response.blob_path
+    assert ".." not in response.blob_path
+
+
+def test_create_upload_url_request_validates_filename_length() -> None:
+    with pytest.raises(ValidationError):
+        CreateUploadUrlRequest(filename="")
+    with pytest.raises(ValidationError):
+        CreateUploadUrlRequest(filename="x" * 256)

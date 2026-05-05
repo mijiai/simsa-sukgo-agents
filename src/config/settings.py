@@ -65,6 +65,20 @@ class Settings(BaseSettings):
         description="Vision caption 용 모델. Haiku 권장 (싸고 충분).",
     )
 
+    # Artifact upload (Option 2 — artifact 가 SAS URL 로 직접 Blob PUT)
+    upload_sas_expiry_minutes: int = Field(
+        default=15,
+        ge=1,
+        le=120,
+        description="create_upload_url 이 발급하는 write SAS 의 TTL(분). "
+        "짧을수록 안전하지만 느린 네트워크에서 업로드 도중 만료 위험.",
+    )
+    upload_blob_prefix: str = Field(
+        default="uploads/",
+        description="artifact 업로드가 격리되는 prefix. "
+        "create_analysis_job(file_blob_paths=...) 는 이 prefix 하위만 허용한다 (PR-B).",
+    )
+
     # Gmail
     gmail_credentials_blob_path: str = Field(default="credentials/gmail_oauth.json")
     gmail_sender_address: str = Field(

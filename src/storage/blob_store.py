@@ -121,3 +121,37 @@ class BlobStore:
             f"https://{self._account_name}.blob.{self._endpoint_suffix}"
             f"/{self._container}/{blob_path}?{sas_token}"
         )
+
+    def generate_upload_sas_url(
+        self,
+        blob_path: str,
+        expiry: timedelta,
+        content_type: str | None = None,
+    ) -> tuple[str, datetime]:
+        """write+create 권한 SAS 발급 (artifact 가 직접 PUT 하기 위함).
+
+        Returns:
+            (upload_url, expires_at) — expires_at 은 클라이언트에 노출해 만료 안내 용.
+
+        artifact 측 PUT 요청 시 필수 헤더:
+            - x-ms-blob-type: BlockBlob   (Azure Blob 규약)
+            - Content-Type: <content_type>  (이 인자 지정 시, SAS 가 강제하므로 일치 필요)
+        """
+        if not self._account_key:
+            raise BlobStorageError("AccountKey not available; SAS generation requires a key")
+
+        expires_at = datetime.now(UTC) + expiry
+        sas_token = generate_blob_sas(
+            account_name=self._account_name,
+            container_name=self._container,
+            blob_name=blob_path,
+            account_key=self._account_key,
+            permission=BlobSasPermissions(create=True, write=True),
+            expiry=expires_at,
+            content_type=content_type,
+        )
+        url = (
+            f"https://{self._account_name}.blob.{self._endpoint_suffix}"
+            f"/{self._container}/{blob_path}?{sas_token}"
+        )
+        return url, expires_at

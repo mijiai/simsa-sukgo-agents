@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -111,3 +111,44 @@ def test_generate_sas_url_requires_account_key() -> None:
 
     with pytest.raises(BlobStorageError, match="AccountKey"):
         store.generate_sas_url("path", timedelta(minutes=5))
+
+
+def test_generate_upload_sas_url_returns_url_and_expiry() -> None:
+    store, _ = _make_store()
+    url, expires_at = store.generate_upload_sas_url(
+        "uploads/abc/재무.xls", timedelta(minutes=15)
+    )
+    assert url.startswith(
+        "https://testacc.blob.core.windows.net/simsasukgo/uploads/abc/재무.xls?"
+    )
+    assert "sig=" in url
+    assert "se=" in url
+    # write+create permissions present (Azure SAS encodes as sp=cw or sp=wc)
+    assert "sp=" in url
+    assert any(p in url for p in ("sp=cw", "sp=wc"))
+    # expires_at within 16 minutes of now (small slack)
+    delta = expires_at - datetime.now(UTC)
+    assert timedelta(minutes=14) < delta <= timedelta(minutes=15, seconds=2)
+
+
+def test_generate_upload_sas_url_constrains_content_type_when_given() -> None:
+    store, _ = _make_store()
+    url, _ = store.generate_upload_sas_url(
+        "uploads/abc/x.xlsx",
+        timedelta(minutes=15),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    # rsct (response/required content-type) is encoded in the SAS query
+    assert "rsct=" in url
+
+
+def test_generate_upload_sas_url_requires_account_key() -> None:
+    no_key_conn = (
+        "DefaultEndpointsProtocol=https;AccountName=testacc;EndpointSuffix=core.windows.net"
+    )
+    with patch("src.storage.blob_store.BlobServiceClient") as bsc_cls:
+        bsc_cls.from_connection_string.return_value = MagicMock()
+        store = BlobStore(no_key_conn, "simsasukgo")
+
+    with pytest.raises(BlobStorageError, match="AccountKey"):
+        store.generate_upload_sas_url("uploads/x", timedelta(minutes=5))
