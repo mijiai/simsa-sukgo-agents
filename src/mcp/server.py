@@ -37,6 +37,7 @@ SERVER_INSTRUCTIONS = """\
 심사숙고 MCP 서버 — 기업 심사 리포트 Multi-Agent.
 
 오케스트레이션 흐름:
+  0. (대용량 파일) create_upload_url(filename) → artifact 가 직접 Blob PUT → blob_path 획득
   1. create_analysis_job(...)            → job_id 발급
   2. collect_company_data(job_id, ...)   → 자료 수집
   3. analyze_financials(job_id)          → 재무 분석
@@ -44,6 +45,8 @@ SERVER_INSTRUCTIONS = """\
   5. (옵션) monitor_register(origin_job_id=job_id)
 
 각 Tool은 job_id 하나만 다음 Tool에 전달하며, 대용량 데이터는 직접 주고받지 않는다.
+파일 첨부는 base64 inline (create_analysis_job.files) 또는 SAS 업로드 후 경로 전달
+(create_upload_url → file_blob_paths) 두 가지를 지원한다.
 """
 
 

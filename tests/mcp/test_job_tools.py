@@ -7,9 +7,11 @@ from pydantic import ValidationError
 
 from src.mcp.job_tools import (
     CreateAnalysisJobRequest,
+    CreateUploadUrlRequest,
     InputFile,
     _sanitize_filename,
     create_analysis_job_service,
+    create_upload_url_service,
 )
 from src.storage.schemas import AgentName, Company, JobStatus
 
@@ -21,6 +23,7 @@ def _now() -> datetime:
 def _make_stores() -> tuple[MagicMock, MagicMock]:
     blob = MagicMock()
     blob.upload = AsyncMock()
+    blob.copy = AsyncMock()
 
     tables = MagicMock()
     tables.companies = MagicMock()
@@ -173,3 +176,132 @@ def test_create_request_validation() -> None:
     too_many_files = [InputFile(filename=f"f{i}.bin", content_base64="YQ==") for i in range(21)]
     with pytest.raises(ValidationError):
         CreateAnalysisJobRequest(company_name="x", files=too_many_files)
+
+
+async def test_create_job_copies_file_blob_paths_into_input_prefix() -> None:
+    blob, tables = _make_stores()
+    request = CreateAnalysisJobRequest(
+        company_name="ACME",
+        file_blob_paths=[
+            "uploads/abc123/재무.xls",
+            "uploads/def456/사업계획서.pdf",
+        ],
+    )
+    response = await create_analysis_job_service(request, blob, tables)
+
+    assert blob.copy.await_count == 2
+    src_dst = [call.args for call in blob.copy.await_args_list]
+    assert (
+        "uploads/abc123/재무.xls",
+        f"jobs/{response.job_id}/input/재무.xls",
+    ) in src_dst
+    assert (
+        "uploads/def456/사업계획서.pdf",
+        f"jobs/{response.job_id}/input/사업계획서.pdf",
+    ) in src_dst
+
+    # input_blob_paths 에는 정규화된 jobs/.../input/ 경로만 노출
+    assert all(p.startswith(f"jobs/{response.job_id}/input/") for p in response.input_blob_paths)
+
+
+async def test_create_job_rejects_paths_outside_uploads_prefix() -> None:
+    blob, tables = _make_stores()
+    request = CreateAnalysisJobRequest(
+        company_name="ACME",
+        file_blob_paths=["jobs/other/report/report.docx"],  # 잘못된 prefix
+    )
+    with pytest.raises(ValueError, match="uploads/"):
+        await create_analysis_job_service(request, blob, tables)
+    blob.copy.assert_not_called()
+
+
+async def test_create_job_rejects_path_traversal_in_blob_path() -> None:
+    blob, tables = _make_stores()
+    request = CreateAnalysisJobRequest(
+        company_name="ACME",
+        file_blob_paths=["uploads/abc/../../jobs/other/x.txt"],
+    )
+    with pytest.raises(ValueError, match="path traversal"):
+        await create_analysis_job_service(request, blob, tables)
+    blob.copy.assert_not_called()
+
+
+async def test_create_job_combines_inline_files_and_blob_paths() -> None:
+    blob, tables = _make_stores()
+    request = CreateAnalysisJobRequest(
+        company_name="ACME",
+        files=[
+            InputFile(
+                filename="prompt.txt",
+                content_base64=base64.b64encode(b"small").decode(),
+            )
+        ],
+        file_blob_paths=["uploads/U/big.xls"],
+    )
+    response = await create_analysis_job_service(request, blob, tables)
+
+    # base64 inline → upload, file_blob_paths → copy
+    assert blob.upload.await_count == 1  # inline file (no custom_prompt → no prompt.txt)
+    assert blob.copy.await_count == 1
+    assert len(response.input_blob_paths) == 2
+
+
+def _make_upload_blob() -> MagicMock:
+    blob = MagicMock()
+    blob.generate_upload_sas_url = MagicMock(
+        return_value=(
+            "https://acc.blob.core.windows.net/c/uploads/U/재무.xls?sig=X&se=...&sp=cw",
+            datetime(2026, 5, 4, 9, 15, tzinfo=UTC),
+        )
+    )
+    return blob
+
+
+def test_create_upload_url_returns_isolated_path_and_required_headers() -> None:
+    blob = _make_upload_blob()
+    request = CreateUploadUrlRequest(filename="재무.xls")
+    response = create_upload_url_service(request, blob, expiry_minutes=15, upload_prefix="uploads/")
+
+    assert response.blob_path.startswith("uploads/")
+    assert response.blob_path.endswith("/재무.xls")
+    # 격리: filename 외에 uuid 1단계가 끼어있어야 함
+    parts = response.blob_path.split("/")
+    assert len(parts) == 3 and parts[0] == "uploads" and parts[1] != ""
+
+    assert response.upload_url.startswith("https://")
+    assert response.required_headers == {"x-ms-blob-type": "BlockBlob"}
+    assert response.expires_at == datetime(2026, 5, 4, 9, 15, tzinfo=UTC)
+
+    blob.generate_upload_sas_url.assert_called_once()
+    call_kwargs = blob.generate_upload_sas_url.call_args
+    assert call_kwargs.args[0] == response.blob_path
+    assert call_kwargs.kwargs == {"content_type": None}
+
+
+def test_create_upload_url_includes_content_type_header_when_given() -> None:
+    blob = _make_upload_blob()
+    request = CreateUploadUrlRequest(filename="x.pdf", content_type="application/pdf")
+    response = create_upload_url_service(request, blob, expiry_minutes=15, upload_prefix="uploads/")
+
+    assert response.required_headers == {
+        "x-ms-blob-type": "BlockBlob",
+        "Content-Type": "application/pdf",
+    }
+    blob.generate_upload_sas_url.assert_called_once()
+    assert blob.generate_upload_sas_url.call_args.kwargs == {"content_type": "application/pdf"}
+
+
+def test_create_upload_url_sanitizes_path_traversal_in_filename() -> None:
+    blob = _make_upload_blob()
+    request = CreateUploadUrlRequest(filename="../../etc/passwd")
+    response = create_upload_url_service(request, blob, expiry_minutes=15, upload_prefix="uploads/")
+    # basename 만 살아남아야 함; '..' 으로 prefix 탈출 불가
+    assert "/passwd" in response.blob_path
+    assert ".." not in response.blob_path
+
+
+def test_create_upload_url_request_validates_filename_length() -> None:
+    with pytest.raises(ValidationError):
+        CreateUploadUrlRequest(filename="")
+    with pytest.raises(ValidationError):
+        CreateUploadUrlRequest(filename="x" * 256)

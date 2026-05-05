@@ -48,7 +48,8 @@ create_analysis_job  →  job_id
 
 | # | Tool | Agent | 입력 | 출력 (경량) |
 |---|---|---|---|---|
-| 1 | `create_analysis_job` | Job 초기화 | `company_name`, `files[]`, `prompt` | `job_id` |
+| 0 | `create_upload_url` | Job 초기화 | `filename`, `content_type?` | `upload_url`, `blob_path` |
+| 1 | `create_analysis_job` | Job 초기화 | `company_name`, `files[]`, `file_blob_paths[]`, `prompt` | `job_id` |
 | 2 | `collect_company_data` | Collector | `job_id`, `company_name` | `news_count`, `financial_years` |
 | 3 | `analyze_financials` | Financial | `job_id` | `risk_level`, `risk_score` |
 | 4 | `report_generate` | Report | `job_id` | `report_url` (SAS, 7일) |
@@ -58,6 +59,29 @@ create_analysis_job  →  job_id
 | 8 | `monitor_run_now` | Monitoring | `company_id` | 즉시 1회 재분석 + 알림 판정 |
 
 각 Tool 은 `tools.py` 에서 얇게 등록되고 비즈니스 로직은 `service.py` 에 둔다 (CLAUDE.md 규칙).
+
+### artifact 직접 업로드 흐름 (대용량 파일)
+
+`create_analysis_job(files=[...])` 의 base64 inline 경로는 LLM 출력 토큰을
+거치므로 ~50KB 가 실용 한계 (Sonnet 출력 64K 토큰 / base64 1KB ≈ 350 토큰).
+큰 첨부는 artifact 가 직접 Azure Blob 으로 PUT 하고 경로만 넘긴다:
+
+```js
+// 1) 업로드 SAS URL 발급 (Claude → MCP)
+const { upload_url, blob_path, required_headers } =
+  await callMcp("create_upload_url", { filename: file.name, content_type: file.type });
+
+// 2) artifact 가 직접 PUT (Claude 우회 — 출력 토큰 0)
+await fetch(upload_url, { method: "PUT", headers: required_headers, body: file });
+
+// 3) 분석 시작 (Claude → MCP, base64 없음)
+await callMcp("create_analysis_job", {
+  company_name: "...", file_blob_paths: [blob_path],
+});
+```
+
+배포 후 1회: `bash scripts/setup_storage_cors.sh` 실행해 Storage Account
+CORS 룰을 등록해야 브라우저 PUT 이 통과한다.
 
 ---
 
