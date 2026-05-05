@@ -50,6 +50,7 @@ create_analysis_job  →  job_id
 |---|---|---|---|---|
 | 0 | `create_upload_url` | Job 초기화 | `filename`, `content_type?` | `upload_url`, `blob_path` |
 | 1 | `create_analysis_job` | Job 초기화 | `company_name`, `files[]`, `file_blob_paths[]`, `prompt` | `job_id` |
+| 1.5 | `list_analysis_jobs` | Job 조회 | `user_id?`, `status?`, `limit`, `offset` | `jobs[]` (페이지), `total` |
 | 2 | `collect_company_data` | Collector | `job_id`, `company_name` | `news_count`, `financial_years` |
 | 3 | `analyze_financials` | Financial | `job_id` | `risk_level`, `risk_score` |
 | 4 | `report_generate` | Report | `job_id` | `report_url` (SAS, 7일) |

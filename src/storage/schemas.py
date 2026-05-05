@@ -32,12 +32,14 @@ class AgentStatusValue(StrEnum):
 class AnalysisJob(BaseModel):
     job_id: str
     company_name: str
+    company_id: str | None = None
     user_id: str | None = None
     status: JobStatus = JobStatus.PENDING
     current_agent: AgentName | None = None
     custom_prompt: str | None = None
     input_blob_prefix: str | None = None
     report_blob_path: str | None = None
+    risk_level: RiskLevel | None = None
     error_message: str | None = None
     created_at: datetime
     updated_at: datetime

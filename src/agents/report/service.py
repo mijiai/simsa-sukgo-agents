@@ -189,6 +189,7 @@ async def report_generate_service(
             request.job_id,
             JobStatus.DONE,
             report_blob_path=docx_path,
+            risk_level=risk_level,
             finished_at=finished_at,
         )
         if company_id:
