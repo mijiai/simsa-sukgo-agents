@@ -14,11 +14,13 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from src.agents.financial.schemas import SectionInsight
+from src.agents.report.narrative import NarrativeMap, run_narrative_writer
 from src.agents.report.planner import run_planner
 from src.agents.report.renderer import render_report_docx, render_report_markdown
 from src.agents.report.schemas import ReportRequest, ReportResponse
 from src.agents.report.sections import SectionContent, build_section_content
 from src.agents.report.template_spec import ReportTemplate, load_template
+from src.agents.report.templates import get_cached_templates
 from src.common.anthropic_client import AnthropicClient
 from src.common.constants import ReportSection, RiskLevel
 from src.config.logging import get_logger
@@ -52,6 +54,7 @@ def _build_sections(
     template: ReportTemplate,
     plan,
     section_insights: list[SectionInsight],
+    narratives: NarrativeMap,
 ) -> dict[ReportSection, SectionContent]:
     sections: dict[ReportSection, SectionContent] = {}
     for spec in template.sections:
@@ -61,7 +64,10 @@ def _build_sections(
             from src.agents.report.planner import PlannedSection
 
             plan_section = PlannedSection()
-        sections[spec.section_id] = build_section_content(spec, plan_section, section_insights)
+        narrative = narratives.narratives.get(spec.section_id.value, "")
+        sections[spec.section_id] = build_section_content(
+            spec, plan_section, section_insights, narrative=narrative
+        )
     return sections
 
 
@@ -126,11 +132,23 @@ async def report_generate_service(
             section_count=len(plan.sections),
         )
 
+        # 3.5. Narrative Writer LLM (1회 호출) — 섹션별 서술형 paragraph
+        narratives = await run_narrative_writer(
+            template, raw, analysis, plan, anthropic, samples=get_cached_templates()
+        )
+        non_empty_narratives = sum(1 for v in narratives.narratives.values() if v.strip())
+        logger.info(
+            "report.narrative.done",
+            job_id=request.job_id,
+            section_count=len(narratives.narratives),
+            non_empty_count=non_empty_narratives,
+        )
+
         # 4. 섹션 컨텐츠 조립 (LLM 호출 X)
         section_insights = [
             SectionInsight.model_validate(si) for si in (analysis.get("section_insights") or [])
         ]
-        sections = _build_sections(template, plan, section_insights)
+        sections = _build_sections(template, plan, section_insights, narratives)
 
         # 5. docx + md 렌더 (LLM 호출 X). base docx 와 appendix 정책은 PR4.
         base_docx_bytes = await _maybe_download_base_docx(blob, base_docx_blob_path)

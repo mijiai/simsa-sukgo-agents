@@ -114,12 +114,16 @@ async def test_service_uploads_both_md_and_docx_and_returns_both_urls() -> None:
     assert response.risk_score == 55.0
 
 
-async def test_service_calls_planner_llm_exactly_once() -> None:
-    """LLM 호출 횟수 정책 — planner 1회만 (TODO_upgrade.md §6.5)."""
+async def test_service_calls_llm_exactly_twice_planner_then_narrative() -> None:
+    """LLM 호출 횟수 정책 — planner 1회 + narrative writer 1회 = 총 2회.
+
+    PR-1 (narrative writer 도입) 이후 정책 갱신. planner 만 1회였던 것은
+    Option B 의 1단계, narrative writer 가 2단계.
+    """
     blob, tables, anthropic = _make_deps()
     request = ReportRequest(job_id="job-2")
     await report_generate_service(request, blob, tables, anthropic, sas_expiry_hours=168)
-    anthropic.complete_json.assert_awaited_once()
+    assert anthropic.complete_json.await_count == 2
 
 
 async def test_service_propagates_section_insights_into_docx_bullets() -> None:
