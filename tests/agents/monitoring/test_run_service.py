@@ -199,6 +199,47 @@ async def test_run_now_full_happy_path(mock_collect, mock_analyze) -> None:
 
 @patch("src.agents.monitoring.run_service.analyze_financials_service", new_callable=AsyncMock)
 @patch("src.agents.monitoring.run_service.collect_company_data_service", new_callable=AsyncMock)
+async def test_run_now_response_includes_risk_evidence_fields(mock_collect, mock_analyze) -> None:
+    """frontend 가 snapshot.json fetch 없이 위험 판단 근거를 바로 쓸 수 있도록.
+
+    summary / key_risk_factors / positive_signals / data_gaps 가 MonitorRunNowResponse 에
+    그대로 노출되는지 검증. snapshot.json 에 들어가는 값과 동일.
+    """
+    blob, tables, naver, anthropic = _make_deps(target=_target())
+    request = MonitorRunNowRequest(company_id="c-1")
+
+    response = await monitor_run_now_service(request, blob, tables, naver, anthropic)
+
+    assert response.summary == "전반적으로 주의 필요"
+    assert response.key_risk_factors == ["요인1", "요인2", "요인3", "요인4", "요인5", "요인6"]
+    assert response.positive_signals == ["신호1"]
+    assert response.data_gaps == ["재무제표 미확보"]
+
+
+@patch("src.agents.monitoring.run_service.analyze_financials_service", new_callable=AsyncMock)
+@patch("src.agents.monitoring.run_service.collect_company_data_service", new_callable=AsyncMock)
+async def test_run_now_response_evidence_defaults_when_analysis_missing_fields(
+    mock_collect, mock_analyze
+) -> None:
+    """analyze 결과에 일부 필드 누락이어도 응답은 빈 list / None 으로 안전 fallback."""
+    minimal_result = {
+        "risk_level": "LOW",
+        "risk_score": 10.0,
+        # summary / key_risk_factors / positive_signals / data_gaps 없음
+    }
+    blob, tables, naver, anthropic = _make_deps(target=_target(), result=minimal_result)
+    request = MonitorRunNowRequest(company_id="c-1")
+
+    response = await monitor_run_now_service(request, blob, tables, naver, anthropic)
+
+    assert response.summary is None
+    assert response.key_risk_factors == []
+    assert response.positive_signals == []
+    assert response.data_gaps == []
+
+
+@patch("src.agents.monitoring.run_service.analyze_financials_service", new_callable=AsyncMock)
+@patch("src.agents.monitoring.run_service.collect_company_data_service", new_callable=AsyncMock)
 async def test_run_now_first_run_no_previous_risk_level(mock_collect, mock_analyze) -> None:
     blob, tables, naver, anthropic = _make_deps(
         target=_target(last_risk_level=None),
