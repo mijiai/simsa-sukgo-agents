@@ -174,6 +174,14 @@ async def _render_section_docx(
         msg_run.italic = True
         return
 
+    # narrative writer LLM 의 서술형 paragraph(s) — 표/이미지보다 먼저 배치.
+    # 빈 문자열이면 생략. 여러 paragraph 면 빈 줄 단위로 분리.
+    if section.narrative.strip():
+        for para_text in section.narrative.split("\n\n"):
+            text = para_text.strip()
+            if text:
+                doc.add_paragraph(text)
+
     appendix_table_ids = appendix_table_ids or set()
 
     for table in section.tables:
@@ -340,6 +348,13 @@ def _md_section(
         lines.append(f"_{_REQUIRED_IMAGE_MISSING_TEXT}_")
         lines.append("")
         return lines
+    # narrative paragraph(s) — 표/이미지 위에. 빈 문자열이면 skip.
+    if section.narrative.strip():
+        for para_text in section.narrative.split("\n\n"):
+            text = para_text.strip()
+            if text:
+                lines.append(text)
+                lines.append("")
     appendix_ids = appendix_ids or set()
     for table in section.tables:
         if table.table_id in appendix_ids:
