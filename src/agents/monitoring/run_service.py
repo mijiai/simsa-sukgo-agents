@@ -248,4 +248,8 @@ async def monitor_run_now_service(
         previous_risk_level=previous_risk_level,
         risk_changed=risk_changed,
         snapshot_blob_path=snapshot_path,
+        summary=result.get("summary"),
+        key_risk_factors=key_risk_factors,
+        positive_signals=result.get("positive_signals") or [],
+        data_gaps=result.get("data_gaps") or [],
     )

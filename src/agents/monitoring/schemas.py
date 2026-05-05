@@ -59,3 +59,14 @@ class MonitorRunNowResponse(BaseModel):
     risk_changed: bool = Field(description="이전 스냅샷 대비 위험 등급 변화 여부")
     snapshot_blob_path: str
     status: Literal["snapshot_done"] = "snapshot_done"
+    # 위험 판단의 근거 — snapshot.json 에 저장되는 값을 응답에도 노출 (frontend 가
+    # 별도 SAS fetch 없이 사용하기 위함). monitor_run_now 외 다른 모니터링 응답은
+    # 영향 X (이 필드는 MonitorRunNowResponse 에만 존재).
+    summary: str | None = None
+    key_risk_factors: list[str] = Field(
+        default_factory=list, description="위험으로 판단한 근거 — 분석 LLM 출력 그대로"
+    )
+    positive_signals: list[str] = Field(
+        default_factory=list, description="긍정 신호 — 등급 완화 요인"
+    )
+    data_gaps: list[str] = Field(default_factory=list, description="자료 부족 항목")
