@@ -58,9 +58,7 @@ def test_merge_with_empty_fallback_fills_only_missing_sections() -> None:
     merged = merge_with_empty_fallback(template, partial)
     assert merged.narratives["1_overview"] == "차주 개요 본문"
     other_keys = [
-        spec.section_id.value
-        for spec in template.sections
-        if spec.section_id.value != "1_overview"
+        spec.section_id.value for spec in template.sections if spec.section_id.value != "1_overview"
     ]
     for k in other_keys:
         assert merged.narratives[k] == ""
