@@ -96,6 +96,19 @@ class BlobStore:
         finally:
             await container_client.close()
 
+    async def copy(self, src_path: str, dst_path: str) -> None:
+        """src_path 의 blob 을 dst_path 로 복사.
+
+        download + upload 로 구현 — Azure server-side copy 는 private storage account
+        에서 source SAS 가 필요해 PoC 범위 외. 큰 파일에서 I/O 가 두 배가 되지만,
+        artifact 업로드 → 분석 흐름은 1회성이라 허용 범위.
+
+        TODO(perf): 100MB 초과 파일이 잦아지면 source 용 단기 read SAS 발급 후
+        start_copy_from_url 로 전환.
+        """
+        data = await self.download(src_path)
+        await self.upload(dst_path, data)
+
     async def delete(self, blob_path: str) -> None:
         client = self._service_client.get_blob_client(self._container, blob_path)
         try:

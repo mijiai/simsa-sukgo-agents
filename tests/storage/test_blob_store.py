@@ -142,6 +142,27 @@ def test_generate_upload_sas_url_constrains_content_type_when_given() -> None:
     assert "rsct=" in url
 
 
+async def test_copy_downloads_then_uploads() -> None:
+    store, service = _make_store()
+    src_stream = AsyncMock()
+    src_stream.readall = AsyncMock(return_value=b"FILEBYTES")
+    src_client = MagicMock()
+    src_client.download_blob = AsyncMock(return_value=src_stream)
+    src_client.close = AsyncMock()
+    dst_client = MagicMock()
+    dst_client.upload_blob = AsyncMock()
+    dst_client.close = AsyncMock()
+    service.get_blob_client.side_effect = [src_client, dst_client]
+
+    await store.copy("uploads/U/x.xls", "jobs/J/input/x.xls")
+
+    src_client.download_blob.assert_awaited_once()
+    dst_client.upload_blob.assert_awaited_once()
+    args, kwargs = dst_client.upload_blob.call_args
+    assert args[0] == b"FILEBYTES"
+    assert kwargs["overwrite"] is True
+
+
 def test_generate_upload_sas_url_requires_account_key() -> None:
     no_key_conn = (
         "DefaultEndpointsProtocol=https;AccountName=testacc;EndpointSuffix=core.windows.net"

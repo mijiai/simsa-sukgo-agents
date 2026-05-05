@@ -23,6 +23,7 @@ def _now() -> datetime:
 def _make_stores() -> tuple[MagicMock, MagicMock]:
     blob = MagicMock()
     blob.upload = AsyncMock()
+    blob.copy = AsyncMock()
 
     tables = MagicMock()
     tables.companies = MagicMock()
@@ -175,6 +176,76 @@ def test_create_request_validation() -> None:
     too_many_files = [InputFile(filename=f"f{i}.bin", content_base64="YQ==") for i in range(21)]
     with pytest.raises(ValidationError):
         CreateAnalysisJobRequest(company_name="x", files=too_many_files)
+
+
+async def test_create_job_copies_file_blob_paths_into_input_prefix() -> None:
+    blob, tables = _make_stores()
+    request = CreateAnalysisJobRequest(
+        company_name="ACME",
+        file_blob_paths=[
+            "uploads/abc123/재무.xls",
+            "uploads/def456/사업계획서.pdf",
+        ],
+    )
+    response = await create_analysis_job_service(request, blob, tables)
+
+    assert blob.copy.await_count == 2
+    src_dst = [call.args for call in blob.copy.await_args_list]
+    assert (
+        "uploads/abc123/재무.xls",
+        f"jobs/{response.job_id}/input/재무.xls",
+    ) in src_dst
+    assert (
+        "uploads/def456/사업계획서.pdf",
+        f"jobs/{response.job_id}/input/사업계획서.pdf",
+    ) in src_dst
+
+    # input_blob_paths 에는 정규화된 jobs/.../input/ 경로만 노출
+    assert all(
+        p.startswith(f"jobs/{response.job_id}/input/") for p in response.input_blob_paths
+    )
+
+
+async def test_create_job_rejects_paths_outside_uploads_prefix() -> None:
+    blob, tables = _make_stores()
+    request = CreateAnalysisJobRequest(
+        company_name="ACME",
+        file_blob_paths=["jobs/other/report/report.docx"],  # 잘못된 prefix
+    )
+    with pytest.raises(ValueError, match="uploads/"):
+        await create_analysis_job_service(request, blob, tables)
+    blob.copy.assert_not_called()
+
+
+async def test_create_job_rejects_path_traversal_in_blob_path() -> None:
+    blob, tables = _make_stores()
+    request = CreateAnalysisJobRequest(
+        company_name="ACME",
+        file_blob_paths=["uploads/abc/../../jobs/other/x.txt"],
+    )
+    with pytest.raises(ValueError, match="path traversal"):
+        await create_analysis_job_service(request, blob, tables)
+    blob.copy.assert_not_called()
+
+
+async def test_create_job_combines_inline_files_and_blob_paths() -> None:
+    blob, tables = _make_stores()
+    request = CreateAnalysisJobRequest(
+        company_name="ACME",
+        files=[
+            InputFile(
+                filename="prompt.txt",
+                content_base64=base64.b64encode(b"small").decode(),
+            )
+        ],
+        file_blob_paths=["uploads/U/big.xls"],
+    )
+    response = await create_analysis_job_service(request, blob, tables)
+
+    # base64 inline → upload, file_blob_paths → copy
+    assert blob.upload.await_count == 1  # inline file (no custom_prompt → no prompt.txt)
+    assert blob.copy.await_count == 1
+    assert len(response.input_blob_paths) == 2
 
 
 def _make_upload_blob() -> MagicMock:
