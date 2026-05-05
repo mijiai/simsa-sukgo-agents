@@ -59,8 +59,18 @@ def _format_value(value: Any) -> str:
     return str(value).strip()
 
 
-def extract_xlsx_text(data: bytes) -> str:
-    """Read all sheets, serialize each as `=== 시트: <name> ===` + pipe-joined non-empty rows."""
+def _truncate_sheet_text(text: str, max_chars: int | None) -> str:
+    if max_chars is None or len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "\n[...truncated]"
+
+
+def extract_xlsx_text(data: bytes, max_chars_per_sheet: int | None = None) -> str:
+    """Read all sheets, serialize each as `=== 시트: <name> ===` + pipe-joined non-empty rows.
+
+    max_chars_per_sheet: 시트당 텍스트 길이 상한. None 이면 무제한 (기존 동작).
+    collector 가 LLM 토큰 비용 통제 목적으로 4000~5000 정도를 넘긴다.
+    """
     wb = openpyxl.load_workbook(BytesIO(data), data_only=True, read_only=True)
     parts: list[str] = []
     for sheet_name in wb.sheetnames:
@@ -72,7 +82,8 @@ def extract_xlsx_text(data: bytes) -> str:
             if cells:
                 rows.append(" | ".join(cells))
         if rows:
-            parts.append(f"=== 시트: {sheet_name} ===\n" + "\n".join(rows))
+            sheet_text = f"=== 시트: {sheet_name} ===\n" + "\n".join(rows)
+            parts.append(_truncate_sheet_text(sheet_text, max_chars_per_sheet))
     wb.close()
     return "\n\n".join(parts)
 
@@ -85,7 +96,7 @@ def _xls_cell_value(cell: xlrd.sheet.Cell, datemode: int) -> Any:
     return cell.value
 
 
-def extract_xls_text(data: bytes) -> str:
+def extract_xls_text(data: bytes, max_chars_per_sheet: int | None = None) -> str:
     """Same shape as xlsx extractor but via xlrd (legacy .xls binary format)."""
     wb = xlrd.open_workbook(file_contents=data)
     parts: list[str] = []
@@ -100,7 +111,8 @@ def extract_xls_text(data: bytes) -> str:
             if cells:
                 rows.append(" | ".join(cells))
         if rows:
-            parts.append(f"=== 시트: {sheet.name} ===\n" + "\n".join(rows))
+            sheet_text = f"=== 시트: {sheet.name} ===\n" + "\n".join(rows)
+            parts.append(_truncate_sheet_text(sheet_text, max_chars_per_sheet))
     return "\n\n".join(parts)
 
 

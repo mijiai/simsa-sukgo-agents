@@ -17,6 +17,7 @@ import xlrd
 from PIL import Image
 from xlrd import xldate_as_datetime
 
+from src.agents.financial.templates import extract_xls_text, extract_xlsx_text
 from src.common.anthropic_client import AnthropicClient
 from src.config.logging import get_logger
 from src.storage.blob_store import BlobStore
@@ -25,6 +26,7 @@ logger = get_logger(__name__)
 
 XLSX_MAX_ROWS_PER_SHEET = 200
 PDF_MAX_TEXT_CHARS = 10000
+SHEET_TEXT_MAX_CHARS = 4000  # 시트 텍스트 fallback — LLM 토큰 통제
 
 _XLSX_SUFFIX = ".xlsx"
 _XLS_SUFFIX = ".xls"
@@ -270,21 +272,147 @@ async def extract_image(blob: BlobStore, blob_path: str, original_filename: str)
     }
 
 
+def _is_sparse_sheets(sheets: list[dict[str, Any]]) -> bool:
+    """모든 시트의 columns 가 거의 다 빈 문자열이면 sparse 로 판정.
+
+    PDF 인쇄용 .xls (셀 병합 다단 레이아웃) 가 typical sparse 패턴 — 첫 행이
+    섹션 헤더 1~3개 병합으로 그 외 컬럼 다 빈 문자열, 데이터 row 도 null 천지.
+    임계값 70% — 한두 시트만 깔끔해도 표 모드 유지.
+    """
+    if not sheets:
+        return True
+    total_cols = sum(len(s.get("columns") or []) for s in sheets)
+    if total_cols == 0:
+        return True
+    empty_cols = sum(sum(1 for c in (s.get("columns") or []) if not str(c).strip()) for s in sheets)
+    return (empty_cols / total_cols) >= 0.7
+
+
+async def _extract_xls_with_text_fallback(
+    blob: BlobStore,
+    blob_path: str,
+    *,
+    is_legacy_xls: bool,
+) -> dict[str, Any]:
+    """xls/xlsx 표 추출 + sparse 시 텍스트 fallback.
+
+    Returns dict with keys:
+        - sheets: list[dict] (구조화 표; sparse 시 빈 list)
+        - doc_text: str | None (sparse 일 때만 채워짐)
+
+    raw bytes 한 번 다운로드해서 두 가지 추출에 재사용 (네트워크 1회).
+    """
+    data = await blob.download(blob_path)
+    if is_legacy_xls:
+        # extract_xls 는 시트별 dict 를 반환하지만 download 는 이미 했으므로 직접 호출
+        sheets = _xls_sheets_from_bytes(data)
+    else:
+        sheets = _xlsx_sheets_from_bytes(data)
+
+    if _is_sparse_sheets(sheets):
+        text_fn = extract_xls_text if is_legacy_xls else extract_xlsx_text
+        doc_text = text_fn(data, max_chars_per_sheet=SHEET_TEXT_MAX_CHARS)
+        logger.info(
+            "collect.extract.text_fallback",
+            blob_path=blob_path,
+            kind="xls" if is_legacy_xls else "xlsx",
+            sheet_count=len(sheets),
+            text_chars=len(doc_text),
+        )
+        return {"sheets": [], "doc_text": doc_text}
+    return {"sheets": sheets, "doc_text": None}
+
+
+def _xls_sheets_from_bytes(data: bytes) -> list[dict[str, Any]]:
+    """extract_xls 와 동일 로직, blob 다운로드 분리 (재사용 위함)."""
+    wb = xlrd.open_workbook(file_contents=data)
+    sheets: list[dict[str, Any]] = []
+    for sheet in wb.sheets():
+        if sheet.nrows == 0:
+            continue
+        header = [_xls_cell_value(sheet.cell(0, c), wb.datemode) for c in range(sheet.ncols)]
+        columns = [_stringify_header(c) for c in header]
+        rows: list[list[Any]] = []
+        truncated = False
+        for r in range(1, sheet.nrows):
+            if len(rows) >= XLSX_MAX_ROWS_PER_SHEET:
+                truncated = True
+                break
+            rows.append(
+                [_xls_cell_value(sheet.cell(r, c), wb.datemode) for c in range(sheet.ncols)]
+            )
+        if not columns and not rows:
+            continue
+        sheets.append(
+            {
+                "sheet_name": sheet.name,
+                "columns": columns,
+                "rows": rows,
+                "truncated": truncated,
+            }
+        )
+    return sheets
+
+
+def _xlsx_sheets_from_bytes(data: bytes) -> list[dict[str, Any]]:
+    wb = openpyxl.load_workbook(BytesIO(data), data_only=True, read_only=True)
+    sheets: list[dict[str, Any]] = []
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows_iter = ws.iter_rows(values_only=True)
+        try:
+            header = next(rows_iter)
+        except StopIteration:
+            continue
+        columns = [str(c) if c is not None else "" for c in header]
+        rows: list[list[Any]] = []
+        truncated = False
+        for i, row in enumerate(rows_iter):
+            if i >= XLSX_MAX_ROWS_PER_SHEET:
+                truncated = True
+                break
+            rows.append(_normalize_xlsx_row(row))
+        if not columns and not rows:
+            continue
+        sheets.append(
+            {
+                "sheet_name": sheet_name,
+                "columns": columns,
+                "rows": rows,
+                "truncated": truncated,
+            }
+        )
+    wb.close()
+    return sheets
+
+
 async def extract_uploaded_file(
     blob: BlobStore, blob_path: str, original_filename: str
 ) -> dict[str, Any] | None:
     """확장자 기반 dispatcher.
 
     Returns:
-        {"kind": "xlsx"|"pdf"|"image", "filename": str, "content": ...} or None
+        {"kind": "xlsx"|"pdf"|"image", "filename": str, "content": ...,
+         "doc_text": str | None}  ← xlsx/xls 만 sparse fallback 시 채워짐
+        or None
     """
     lower = original_filename.lower()
     if lower.endswith(_XLSX_SUFFIX):
-        content = await extract_xlsx(blob, blob_path)
-        return {"kind": "xlsx", "filename": original_filename, "content": content}
+        result = await _extract_xls_with_text_fallback(blob, blob_path, is_legacy_xls=False)
+        return {
+            "kind": "xlsx",
+            "filename": original_filename,
+            "content": result["sheets"],
+            "doc_text": result["doc_text"],
+        }
     if lower.endswith(_XLS_SUFFIX):
-        content = await extract_xls(blob, blob_path)
-        return {"kind": "xlsx", "filename": original_filename, "content": content}
+        result = await _extract_xls_with_text_fallback(blob, blob_path, is_legacy_xls=True)
+        return {
+            "kind": "xlsx",
+            "filename": original_filename,
+            "content": result["sheets"],
+            "doc_text": result["doc_text"],
+        }
     if lower.endswith(_PDF_SUFFIX):
         content = await extract_pdf(blob, blob_path)
         return {"kind": "pdf", "filename": original_filename, "content": content}
