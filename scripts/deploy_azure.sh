@@ -207,5 +207,8 @@ MCP SSE URL:     https://$FQDN/sse
   2. Claude.ai connector URL → https://$FQDN/sse 로 변경
   3. ngrok / 로컬 서버 종료
   4. (선택) az containerapp logs show -n $ACA_APP -g $RG --follow
+
+artifact 업로드 흐름을 쓸 거면 (create_upload_url):
+  bash scripts/setup_storage_cors.sh    # Storage Account CORS 1회 설정
 ============================================================
 EOF
