@@ -1,5 +1,6 @@
 import base64
 import binascii
+import json
 import os
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -9,6 +10,7 @@ from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 from src.common.constants import RiskLevel
+from src.common.exceptions import EntityNotFoundError
 from src.config.logging import get_logger
 from src.config.settings import get_settings
 from src.storage.blob_store import BlobStore
@@ -73,6 +75,75 @@ class ListAnalysisJobsRequest(BaseModel):
     )
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
+
+
+class GetAnalysisJobDetailRequest(BaseModel):
+    job_id: str = Field(min_length=1)
+
+
+class AgentStatusItem(BaseModel):
+    agent_name: AgentName
+    status: AgentStatusValue
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_sec: int | None = None
+    output_blob_path: str | None = None
+    error_detail: str | None = None
+
+
+class CollectSummary(BaseModel):
+    """raw.json 발췌 — 전체 본문 (news, extracted_tables 등) 은 빼고 카운트만."""
+
+    news_count: int = 0
+    lawsuit_count: int = 0
+    extracted_table_count: int = 0
+    extracted_image_count: int = 0
+    extracted_doc_count: int = 0
+    financial_years: list[int] = Field(default_factory=list)
+    has_internal_credit_data: bool = False
+    uploaded_files: list[str] = Field(default_factory=list)
+
+
+class AnalyzeSummary(BaseModel):
+    """result.json 발췌 — section_insights 는 너무 길어 count 만."""
+
+    risk_level: RiskLevel | None = None
+    risk_score: float | None = None
+    summary: str | None = None
+    key_risk_factors: list[str] = Field(default_factory=list)
+    positive_signals: list[str] = Field(default_factory=list)
+    data_gaps: list[str] = Field(default_factory=list)
+    section_insights_count: int = 0
+    model: str | None = None
+    analyzed_at: datetime | None = None
+
+
+class ReportArtifacts(BaseModel):
+    md_url: str | None = None
+    md_blob_path: str | None = None
+    docx_url: str | None = None
+    docx_blob_path: str | None = None
+
+
+class GetAnalysisJobDetailResponse(BaseModel):
+    job_id: str
+    company_id: str | None = None
+    company_name: str
+    user_id: str | None = None
+    status: JobStatus
+    custom_prompt: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    finished_at: datetime | None = None
+    error_message: str | None = None
+
+    risk_level: RiskLevel | None = None
+    current_agent: AgentName | None = None
+
+    agents: list[AgentStatusItem] = Field(default_factory=list)
+    collect: CollectSummary | None = None
+    analyze: AnalyzeSummary | None = None
+    report: ReportArtifacts | None = None
 
 
 class ListedAnalysisJob(BaseModel):
@@ -266,6 +337,147 @@ def create_upload_url_service(
     )
 
 
+async def _safe_download_json(blob: BlobStore, path: str) -> dict | None:
+    """Blob 다운로드 + JSON 파싱. 실패 시 None (warning 로그만)."""
+    try:
+        data = await blob.download(path)
+        return json.loads(data.decode("utf-8"))
+    except Exception as exc:
+        logger.warning("get_job_detail.blob_download_failed", path=path, error=str(exc))
+        return None
+
+
+def _build_collect_summary(raw: dict) -> CollectSummary:
+    return CollectSummary(
+        news_count=len(raw.get("news") or []),
+        lawsuit_count=len(raw.get("lawsuits") or []),
+        extracted_table_count=len(raw.get("extracted_tables") or []),
+        extracted_image_count=len(raw.get("extracted_images") or []),
+        extracted_doc_count=len(raw.get("extracted_docs") or []),
+        financial_years=raw.get("financial_years") or [],
+        has_internal_credit_data=bool(raw.get("internal_credit_data")),
+        uploaded_files=raw.get("uploaded_files") or [],
+    )
+
+
+def _build_analyze_summary(result: dict) -> AnalyzeSummary:
+    risk_level_str = result.get("risk_level")
+    risk_level = RiskLevel(risk_level_str) if isinstance(risk_level_str, str) else None
+    analyzed_at_str = result.get("analyzed_at")
+    analyzed_at = (
+        datetime.fromisoformat(analyzed_at_str) if isinstance(analyzed_at_str, str) else None
+    )
+    return AnalyzeSummary(
+        risk_level=risk_level,
+        risk_score=result.get("risk_score"),
+        summary=result.get("summary"),
+        key_risk_factors=result.get("key_risk_factors") or [],
+        positive_signals=result.get("positive_signals") or [],
+        data_gaps=result.get("data_gaps") or [],
+        section_insights_count=len(result.get("section_insights") or []),
+        model=result.get("model"),
+        analyzed_at=analyzed_at,
+    )
+
+
+async def get_analysis_job_detail_service(
+    request: GetAnalysisJobDetailRequest,
+    tables: TableStore,
+    blob: BlobStore,
+    *,
+    sas_expiry_hours: int = 168,
+) -> GetAnalysisJobDetailResponse:
+    """list_analysis_jobs 의 한 row 를 클릭했을 때 상세 페이지가 호출.
+
+    동작:
+    1. AnalysisJob 조회 (없으면 EntityNotFoundError)
+    2. AgentStatus 3행 (collect/analyze/report) — 단계별 상태/시간/output_blob_path
+    3. collect/raw.json 발췌 → CollectSummary (news_count, financial_years, ...)
+    4. analyze/result.json 발췌 → AnalyzeSummary (risk_*, summary, evidence list)
+    5. report.md / report.docx SAS URL 발급 (해당 단계 완료된 경우만)
+    6. 모든 Blob 다운/SAS 실패는 graceful — 해당 섹션 None 으로 두고 진행
+    """
+    try:
+        job = await tables.jobs.get(request.job_id)
+    except EntityNotFoundError as exc:
+        logger.warning("get_job_detail.job_not_found", job_id=request.job_id)
+        raise EntityNotFoundError("AnalysisJobs", "job", request.job_id) from exc
+
+    agent_rows = await tables.agent_status.list_for_job(request.job_id)
+    agents = [
+        AgentStatusItem(
+            agent_name=a.agent_name,
+            status=a.status,
+            started_at=a.started_at,
+            finished_at=a.finished_at,
+            duration_sec=a.duration_sec,
+            output_blob_path=a.output_blob_path,
+            error_detail=a.error_detail,
+        )
+        for a in agent_rows
+    ]
+    # 일관된 순서 (collect → analyze → report)
+    agent_order = {AgentName.COLLECT: 0, AgentName.ANALYZE: 1, AgentName.REPORT: 2}
+    agents.sort(key=lambda a: agent_order.get(a.agent_name, 99))
+
+    collect: CollectSummary | None = None
+    analyze: AnalyzeSummary | None = None
+    report: ReportArtifacts | None = None
+
+    raw = await _safe_download_json(blob, f"jobs/{request.job_id}/collect/raw.json")
+    if raw is not None:
+        collect = _build_collect_summary(raw)
+
+    result = await _safe_download_json(blob, f"jobs/{request.job_id}/analyze/result.json")
+    if result is not None:
+        analyze = _build_analyze_summary(result)
+
+    # Report artifacts — md/docx 가 실제로 존재할 때만 SAS URL 발급
+    md_path = f"jobs/{request.job_id}/report/report.md"
+    docx_path = f"jobs/{request.job_id}/report/report.docx"
+    md_exists = await blob.exists(md_path)
+    docx_exists = await blob.exists(docx_path)
+    if md_exists or docx_exists:
+        report = ReportArtifacts(
+            md_blob_path=md_path if md_exists else None,
+            md_url=blob.generate_sas_url(md_path, timedelta(hours=sas_expiry_hours))
+            if md_exists
+            else None,
+            docx_blob_path=docx_path if docx_exists else None,
+            docx_url=blob.generate_sas_url(docx_path, timedelta(hours=sas_expiry_hours))
+            if docx_exists
+            else None,
+        )
+
+    logger.info(
+        "get_job_detail.done",
+        job_id=request.job_id,
+        status=job.status.value,
+        has_collect=collect is not None,
+        has_analyze=analyze is not None,
+        has_report=report is not None,
+    )
+
+    return GetAnalysisJobDetailResponse(
+        job_id=job.job_id,
+        company_id=job.company_id,
+        company_name=job.company_name,
+        user_id=job.user_id,
+        status=job.status,
+        custom_prompt=job.custom_prompt,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        finished_at=job.finished_at,
+        error_message=job.error_message,
+        risk_level=job.risk_level,
+        current_agent=job.current_agent,
+        agents=agents,
+        collect=collect,
+        analyze=analyze,
+        report=report,
+    )
+
+
 async def list_analysis_jobs_service(
     request: ListAnalysisJobsRequest,
     tables: TableStore,
@@ -440,4 +652,47 @@ def register_job_tools(mcp: FastMCP) -> None:
             user_id=user_id, status=status_enum, limit=limit, offset=offset
         )
         response = await list_analysis_jobs_service(request, get_table_store())
+        return response.model_dump(mode="json")
+
+    @mcp.tool()
+    async def get_analysis_job_detail(job_id: str) -> dict:
+        """
+        분석 Job 의 상세 정보 — list_analysis_jobs 의 한 row 클릭 시 호출.
+
+        사용 시점:
+        - frontend 분석 보관함에서 항목 클릭 → 상세 페이지 mount 직후
+
+        입력:
+        - job_id
+
+        출력:
+        - 메타: company_id, company_name, status, user_id, custom_prompt,
+          created_at / updated_at / finished_at, risk_level, current_agent,
+          error_message
+        - agents: AgentStatus 3행 (collect / analyze / report) — 단계별
+          상태/시간/duration_sec/output_blob_path/error_detail
+        - collect: raw.json 의 발췌 (news_count, financial_years,
+          extracted_*_count, has_internal_credit_data, uploaded_files)
+          — 단계 미완료면 null
+        - analyze: result.json 의 발췌 (risk_level, risk_score, summary,
+          key_risk_factors, positive_signals, data_gaps,
+          section_insights_count, model, analyzed_at)
+          — 단계 미완료면 null
+        - report: { md_url, md_blob_path, docx_url, docx_blob_path }
+          SAS URL 만료 default 168시간 (settings.report_sas_expiry_hours).
+          — 둘 다 없으면 report 자체가 null
+
+        실패 시:
+        - Job 미존재: EntityNotFoundError
+        - 단계별 Blob 다운로드 실패: 해당 섹션만 null + warning 로그
+          (다른 섹션은 정상 반환 — best-effort)
+        """
+        request = GetAnalysisJobDetailRequest(job_id=job_id)
+        settings = get_settings()
+        response = await get_analysis_job_detail_service(
+            request,
+            get_table_store(),
+            get_blob_store(),
+            sas_expiry_hours=settings.report_sas_expiry_hours,
+        )
         return response.model_dump(mode="json")
