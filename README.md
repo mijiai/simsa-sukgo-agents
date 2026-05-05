@@ -81,7 +81,15 @@ await callMcp("create_analysis_job", {
 ```
 
 배포 후 1회: `bash scripts/setup_storage_cors.sh` 실행해 Storage Account
-CORS 룰을 등록해야 브라우저 PUT 이 통과한다.
+CORS 룰을 등록해야 브라우저 PUT 이 통과한다. default 는 `claude.ai`,
+`*.claude.ai`, `simsasukgo-frontend.vercel.app`, `*.vercel.app`, 그리고 로컬
+개발용 `http://localhost:3000`. 다른 도메인이 필요하면 `CORS_ORIGINS` 환경변수로
+override (공백 또는 콤마 구분):
+
+```bash
+CORS_ORIGINS="https://my-frontend.example.com,https://*.preview.example.com" \
+  bash scripts/setup_storage_cors.sh
+```
 
 ---
 
