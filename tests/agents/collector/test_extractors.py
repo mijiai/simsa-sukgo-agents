@@ -7,7 +7,9 @@ from PIL import Image
 
 from src.agents.collector.extractors import (
     PDF_MAX_TEXT_CHARS,
+    SHEET_TEXT_MAX_CHARS,
     XLSX_MAX_ROWS_PER_SHEET,
+    _is_sparse_sheets,
     extract_image,
     extract_pdf,
     extract_uploaded_file,
@@ -218,3 +220,105 @@ async def test_extract_uploaded_file_returns_none_for_unsupported() -> None:
     assert await extract_uploaded_file(blob, "p", "data.csv") is None
     assert await extract_uploaded_file(blob, "p", "notes.txt") is None
     blob.download.assert_not_called()
+
+
+# ─── Sparse 시트 감지 + 텍스트 fallback (PDF 인쇄용 .xls 대응) ───
+
+
+def test_is_sparse_sheets_empty_input() -> None:
+    assert _is_sparse_sheets([]) is True
+
+
+def test_is_sparse_sheets_clean_sheet_returns_false() -> None:
+    sheets = [{"columns": ["구분", "2023", "2024"], "rows": [["자산", 100, 200]]}]
+    assert _is_sparse_sheets(sheets) is False
+
+
+def test_is_sparse_sheets_all_empty_columns_returns_true() -> None:
+    sheets = [{"columns": ["", "", "", "", "", "", "", "", "", ""], "rows": []}]
+    assert _is_sparse_sheets(sheets) is True
+
+
+def test_is_sparse_sheets_mixed_70pct_threshold() -> None:
+    # 7개 빈 / 3개 의미 → 70% 빈 → sparse 판정
+    sheets = [{"columns": ["a", "b", "c", "", "", "", "", "", "", ""], "rows": []}]
+    assert _is_sparse_sheets(sheets) is True
+
+
+def _make_xlsx_with_empty_header(extra_cols: int) -> bytes:
+    """헤더 첫 행이 거의 빈 채로 데이터 row 가 흩어진 PDF 인쇄형 .xlsx fixture."""
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet("S")
+    # 1행 = 헤더 (대부분 빈 문자열)
+    ws.append([""] * extra_cols)
+    # 2행 = 데이터지만 너무 흩어져서 표 의미 없음
+    ws.append(["라벨", None, None, "값", None, None] + [None] * (extra_cols - 6))
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+async def test_extract_uploaded_file_xlsx_falls_back_to_doc_text_when_sparse() -> None:
+    """헤더가 모두 빈 문자열인 PDF 인쇄형 xlsx → tables=[] + doc_text 채워짐."""
+    blob = _blob_with(_make_xlsx_with_empty_header(extra_cols=20))
+    result = await extract_uploaded_file(blob, "p", "credit_report.xlsx")
+    assert result is not None
+    assert result["kind"] == "xlsx"
+    assert result["content"] == []  # 표 추출 포기
+    assert result["doc_text"] is not None
+    assert "라벨" in result["doc_text"] and "값" in result["doc_text"]
+    assert "=== 시트: S ===" in result["doc_text"]
+
+
+async def test_extract_uploaded_file_xlsx_clean_sheet_keeps_tables_no_doc_text() -> None:
+    """헤더가 정상인 깔끔한 xlsx → 기존대로 tables, doc_text=None."""
+    blob = _blob_with(_make_xlsx({"재무": [["구분", "2023", "2024"], ["자산", 100, 200]]}))
+    result = await extract_uploaded_file(blob, "p", "clean.xlsx")
+    assert result is not None
+    assert result["kind"] == "xlsx"
+    assert len(result["content"]) == 1
+    assert result["doc_text"] is None  # fallback 안 탐
+
+
+async def test_extract_uploaded_file_xls_falls_back_to_doc_text_when_sparse() -> None:
+    """레거시 .xls 도 동일 — 빈 헤더면 doc_text fallback."""
+    # xlwt 로 셀 병합 흉내 — 빈 셀 가득한 헤더 + 흩어진 데이터
+    wb = xlwt.Workbook()
+    ws = wb.add_sheet("Page 1")
+    # 첫 행은 컬럼 31개 모두 빈 셀 (한국형 신용보고서 패턴)
+    for c in range(31):
+        ws.write(0, c, "")
+    # 데이터는 라벨 + 값 한 쌍
+    ws.write(1, 0, "상호")
+    ws.write(1, 5, "테스트회사")
+    buf = BytesIO()
+    wb.save(buf)
+
+    blob = _blob_with(buf.getvalue())
+    result = await extract_uploaded_file(blob, "p", "report.xls")
+    assert result is not None
+    assert result["kind"] == "xlsx"
+    assert result["content"] == []
+    assert result["doc_text"] is not None
+    assert "상호" in result["doc_text"] and "테스트회사" in result["doc_text"]
+
+
+async def test_sheet_text_max_chars_truncates_per_sheet() -> None:
+    """긴 시트는 SHEET_TEXT_MAX_CHARS 로 truncate (LLM 토큰 통제)."""
+    long_text = "X" * (SHEET_TEXT_MAX_CHARS + 1000)
+    # 빈 헤더 + 한 줄에 긴 텍스트 → sparse fallback 으로 들어감
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet("S")
+    ws.append([""] * 10)
+    ws.append([long_text])
+    buf = BytesIO()
+    wb.save(buf)
+
+    blob = _blob_with(buf.getvalue())
+    result = await extract_uploaded_file(blob, "p", "huge.xlsx")
+    assert result["doc_text"] is not None
+    # 시트당 truncate marker 가 있어야 함
+    assert "[...truncated]" in result["doc_text"]
+    assert len(result["doc_text"]) <= SHEET_TEXT_MAX_CHARS + 100  # marker 약간 여유

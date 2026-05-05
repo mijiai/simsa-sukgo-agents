@@ -191,6 +191,32 @@ def test_extract_xls_handles_integer_floats() -> None:
     assert "463743.0" not in text
 
 
+def test_extract_xls_text_truncates_per_sheet_when_max_chars_set() -> None:
+    """collector 가 LLM 토큰 통제용으로 시트당 max_chars 를 넘기면 truncate 마커가 박힘."""
+    long_value = "X" * 5000
+    data = _make_xls({"S": [["자산", long_value]]})
+    text = extract_xls_text(data, max_chars_per_sheet=1000)
+    assert "[...truncated]" in text
+    assert len(text) < 1200  # marker 포함 약간의 여유
+
+
+def test_extract_xls_text_no_truncation_when_max_chars_none() -> None:
+    """default None → 무제한 (기존 동작 보존)."""
+    long_value = "X" * 5000
+    data = _make_xls({"S": [["자산", long_value]]})
+    text = extract_xls_text(data)  # max_chars_per_sheet 없이
+    assert "[...truncated]" not in text
+    assert long_value in text
+
+
+def test_extract_xlsx_text_truncates_per_sheet_when_max_chars_set() -> None:
+    long_value = "X" * 5000
+    data = _make_xlsx({"S": [["자산", long_value]]})
+    text = extract_xlsx_text(data, max_chars_per_sheet=1000)
+    assert "[...truncated]" in text
+    assert len(text) < 1200
+
+
 async def test_load_financial_samples_caches_docx_and_pdf() -> None:
     reset_samples_for_tests()
 

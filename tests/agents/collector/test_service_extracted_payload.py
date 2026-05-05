@@ -132,6 +132,37 @@ async def test_corrupt_file_does_not_fail_overall_collect() -> None:
     assert payload["uploaded_files"] == ["good.xlsx", "broken.xlsx"]
 
 
+async def test_xlsx_sparse_falls_back_to_extracted_docs() -> None:
+    """헤더가 빈 PDF 인쇄형 .xlsx → tables=[] + extracted_docs 에 텍스트로 추가."""
+    blob, tables, naver = _make_deps()
+
+    # 첫 행이 모두 빈 문자열인 sparse 시트
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet("Page 1")
+    ws.append([""] * 20)  # 빈 헤더
+    ws.append(["상호", None, None, "테스트회사", None, "자산총계", 1000])
+    buf = BytesIO()
+    wb.save(buf)
+    sparse_bytes = buf.getvalue()
+
+    blob.list_prefix = AsyncMock(return_value=["jobs/job-sparse/input/credit.xlsx"])
+    blob.download = AsyncMock(return_value=sparse_bytes)
+
+    request = CollectRequest(job_id="job-sparse", company_name="ACME")
+    response = await collect_company_data_service(request, blob, tables, naver)
+
+    payload = json.loads(blob.upload.call_args.args[1].decode("utf-8"))
+    assert payload["extracted_tables"] == []  # 표 추출 포기
+    assert len(payload["extracted_docs"]) == 1
+    doc = payload["extracted_docs"][0]
+    assert doc["source_file"] == "credit.xlsx"
+    assert "상호" in doc["text"] and "테스트회사" in doc["text"]
+    assert doc["page_count"] == 0  # xls/xlsx text fallback 표시
+    assert response.extracted_doc_count == 1
+    assert response.extracted_table_count == 0
+
+
 async def test_unsupported_extension_skipped_silently() -> None:
     blob, tables, naver = _make_deps()
     blob.list_prefix = AsyncMock(return_value=["jobs/job-4/input/data.csv"])

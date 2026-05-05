@@ -7,6 +7,7 @@ from src.agents.report.planner import (
     PlannedSection,
     PlannedTable,
     ReportPlan,
+    build_planner_user_prompt,
     fallback_plan,
     merge_with_fallback,
     run_planner,
@@ -142,3 +143,33 @@ def test_planned_image_default_values() -> None:
     assert pi.data_gap is False
     assert pi.blob_path is None
     assert pi.caption is None
+
+
+# ───────────────────── extracted_docs fallback prompt ─────────────────────
+
+
+def test_user_prompt_includes_extracted_docs_block() -> None:
+    """planner prompt 가 extracted_docs 의 텍스트를 그대로 노출 — sparse xls fallback 핵심."""
+    template = _template()
+    raw = {
+        "extracted_tables": [],
+        "extracted_docs": [
+            {"source_file": "credit.xls", "text": "상호 | 테스트회사\n자산총계 | 1000"}
+        ],
+        "extracted_images": [],
+    }
+    analysis = {"section_insights": []}
+    prompt = build_planner_user_prompt(template, raw, analysis)
+    assert "extracted_docs" in prompt
+    assert "credit.xls" in prompt
+    assert "상호 | 테스트회사" in prompt
+    assert "자산총계 | 1000" in prompt
+
+
+def test_user_prompt_includes_empty_docs_block_when_no_docs() -> None:
+    """docs 가 비어도 prompt 에 해당 섹션은 등장 (LLM 이 일관된 형식 기대)."""
+    template = _template()
+    raw = {"extracted_tables": [], "extracted_docs": [], "extracted_images": []}
+    analysis = {"section_insights": []}
+    prompt = build_planner_user_prompt(template, raw, analysis)
+    assert "extracted_docs" in prompt
