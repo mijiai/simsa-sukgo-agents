@@ -201,9 +201,7 @@ async def test_create_job_copies_file_blob_paths_into_input_prefix() -> None:
     ) in src_dst
 
     # input_blob_paths 에는 정규화된 jobs/.../input/ 경로만 노출
-    assert all(
-        p.startswith(f"jobs/{response.job_id}/input/") for p in response.input_blob_paths
-    )
+    assert all(p.startswith(f"jobs/{response.job_id}/input/") for p in response.input_blob_paths)
 
 
 async def test_create_job_rejects_paths_outside_uploads_prefix() -> None:
@@ -262,9 +260,7 @@ def _make_upload_blob() -> MagicMock:
 def test_create_upload_url_returns_isolated_path_and_required_headers() -> None:
     blob = _make_upload_blob()
     request = CreateUploadUrlRequest(filename="재무.xls")
-    response = create_upload_url_service(
-        request, blob, expiry_minutes=15, upload_prefix="uploads/"
-    )
+    response = create_upload_url_service(request, blob, expiry_minutes=15, upload_prefix="uploads/")
 
     assert response.blob_path.startswith("uploads/")
     assert response.blob_path.endswith("/재무.xls")
@@ -284,29 +280,21 @@ def test_create_upload_url_returns_isolated_path_and_required_headers() -> None:
 
 def test_create_upload_url_includes_content_type_header_when_given() -> None:
     blob = _make_upload_blob()
-    request = CreateUploadUrlRequest(
-        filename="x.pdf", content_type="application/pdf"
-    )
-    response = create_upload_url_service(
-        request, blob, expiry_minutes=15, upload_prefix="uploads/"
-    )
+    request = CreateUploadUrlRequest(filename="x.pdf", content_type="application/pdf")
+    response = create_upload_url_service(request, blob, expiry_minutes=15, upload_prefix="uploads/")
 
     assert response.required_headers == {
         "x-ms-blob-type": "BlockBlob",
         "Content-Type": "application/pdf",
     }
     blob.generate_upload_sas_url.assert_called_once()
-    assert blob.generate_upload_sas_url.call_args.kwargs == {
-        "content_type": "application/pdf"
-    }
+    assert blob.generate_upload_sas_url.call_args.kwargs == {"content_type": "application/pdf"}
 
 
 def test_create_upload_url_sanitizes_path_traversal_in_filename() -> None:
     blob = _make_upload_blob()
     request = CreateUploadUrlRequest(filename="../../etc/passwd")
-    response = create_upload_url_service(
-        request, blob, expiry_minutes=15, upload_prefix="uploads/"
-    )
+    response = create_upload_url_service(request, blob, expiry_minutes=15, upload_prefix="uploads/")
     # basename 만 살아남아야 함; '..' 으로 prefix 탈출 불가
     assert "/passwd" in response.blob_path
     assert ".." not in response.blob_path

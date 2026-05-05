@@ -86,9 +86,7 @@ def _validate_uploaded_blob_path(path: str, allowed_prefix: str) -> str:
     (jobs/X/report/result.json 같은 internal path 로 덮어쓰는 공격 방어).
     """
     if not path.startswith(allowed_prefix):
-        raise ValueError(
-            f"file_blob_paths 항목은 '{allowed_prefix}' 로 시작해야 합니다: {path!r}"
-        )
+        raise ValueError(f"file_blob_paths 항목은 '{allowed_prefix}' 로 시작해야 합니다: {path!r}")
     if ".." in path.split("/"):
         raise ValueError(f"path traversal 의심 segment 포함: {path!r}")
     basename = os.path.basename(path)

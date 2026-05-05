@@ -115,12 +115,8 @@ def test_generate_sas_url_requires_account_key() -> None:
 
 def test_generate_upload_sas_url_returns_url_and_expiry() -> None:
     store, _ = _make_store()
-    url, expires_at = store.generate_upload_sas_url(
-        "uploads/abc/재무.xls", timedelta(minutes=15)
-    )
-    assert url.startswith(
-        "https://testacc.blob.core.windows.net/simsasukgo/uploads/abc/재무.xls?"
-    )
+    url, expires_at = store.generate_upload_sas_url("uploads/abc/재무.xls", timedelta(minutes=15))
+    assert url.startswith("https://testacc.blob.core.windows.net/simsasukgo/uploads/abc/재무.xls?")
     assert "sig=" in url
     assert "se=" in url
     # write+create permissions present (Azure SAS encodes as sp=cw or sp=wc)
