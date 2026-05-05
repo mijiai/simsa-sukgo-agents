@@ -30,10 +30,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="${ENV_FILE:-$PROJECT_ROOT/.env}"
 
-# Default: claude.ai (artifact iframe) + Vercel (자체 프론트엔드) 도메인.
+# Default: claude.ai (artifact iframe) + Vercel (자체 프론트엔드) + localhost (개발).
 # 추가 / 변경이 필요하면 CORS_ORIGINS env 로 override.
 # 구분자는 공백 또는 콤마 둘 다 허용 (사용자 편의).
-CORS_ORIGINS="${CORS_ORIGINS:-https://claude.ai https://*.claude.ai https://simsasukgo-frontend.vercel.app https://*.vercel.app}"
+# Note: localhost 는 http (https 아님) — Next.js dev server 기본.
+CORS_ORIGINS="${CORS_ORIGINS:-https://claude.ai https://*.claude.ai https://simsasukgo-frontend.vercel.app https://*.vercel.app http://localhost:3000}"
 CORS_MAX_AGE="${CORS_MAX_AGE:-3600}"
 CORS_METHODS="${CORS_METHODS:-PUT GET HEAD}"
 
