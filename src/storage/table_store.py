@@ -152,6 +152,7 @@ class AnalysisJobsRepo(_RepoBase):
         *,
         current_agent: AgentName | None = None,
         report_blob_path: str | None = None,
+        risk_level: RiskLevel | None = None,
         error_message: str | None = None,
         finished_at: datetime | None = None,
     ) -> None:
@@ -165,6 +166,8 @@ class AnalysisJobsRepo(_RepoBase):
             entity["current_agent"] = current_agent.value
         if report_blob_path is not None:
             entity["report_blob_path"] = report_blob_path
+        if risk_level is not None:
+            entity["risk_level"] = risk_level.value
         if error_message is not None:
             entity["error_message"] = error_message
         if finished_at is not None:
@@ -177,6 +180,36 @@ class AnalysisJobsRepo(_RepoBase):
             "(status eq 'collecting' or status eq 'analyzing' or status eq 'reporting')"
         )
         return [_entity_to_model(e, AnalysisJob) for e in results]
+
+    async def list_filtered(
+        self,
+        *,
+        user_id: str | None = None,
+        status: JobStatus | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[AnalysisJob], int]:
+        """list_analysis_jobs MCP tool 용 — user_id/status filter + offset/limit pagination.
+
+        Azure Table 은 server-side OFFSET 미지원 — 메모리에서 sort 후 슬라이스.
+        PoC 규모 (수백~수천 row) 에서 OK. 큰 운영 데이터셋이면 별도 인덱스 Table 필요.
+
+        Returns:
+            (jobs, total): 필터 후 전체 매치 count + 페이지 슬라이스.
+        """
+        clauses = [f"PartitionKey eq '{self.PARTITION}'"]
+        if status is not None:
+            clauses.append(f"status eq '{status.value}'")
+        if user_id is not None:
+            # Azure Table query 의 string escape — single quote 내부엔 ''
+            safe_user_id = user_id.replace("'", "''")
+            clauses.append(f"user_id eq '{safe_user_id}'")
+        results = await self._query(" and ".join(clauses))
+        all_jobs = [_entity_to_model(e, AnalysisJob) for e in results]
+        all_jobs.sort(key=lambda j: j.created_at, reverse=True)
+        total = len(all_jobs)
+        page = all_jobs[offset : offset + limit]
+        return page, total
 
 
 class AgentStatusRepo(_RepoBase):

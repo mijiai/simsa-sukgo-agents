@@ -134,6 +134,7 @@ async def monitor_run_now_service(
     )
 
     # 4. Mark AnalysisJob done (we skip report intentionally for monitoring).
+    # risk_level 은 step 5 의 result.json 다운로드 후 별도 update — 시점이 다름.
     finished_at = datetime.now(UTC)
     await tables.jobs.update_status(
         job_id,
@@ -156,6 +157,9 @@ async def monitor_run_now_service(
 
     previous_risk_level = target.last_risk_level
     risk_changed = previous_risk_level != risk_level
+
+    # AnalysisJob 에 risk_level 도 함께 저장 — list_analysis_jobs 가 join 없이 risk_level 노출.
+    await tables.jobs.update_status(job_id, JobStatus.DONE, risk_level=risk_level)
 
     # 6. Save full snapshot.json to monitoring/{company_id}/{YYYYMMDD}/snapshot.json
     snapshot_path = _snapshot_blob_path(request.company_id, finished_at)

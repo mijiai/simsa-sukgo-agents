@@ -149,11 +149,16 @@ async def test_run_now_full_happy_path(mock_collect, mock_analyze) -> None:
     analyze_req = mock_analyze.call_args.args[0]
     assert analyze_req.job_id == job_arg.job_id
 
-    # AnalysisJob marked DONE (skips report)
-    tables.jobs.update_status.assert_awaited_once()
-    done_call = tables.jobs.update_status.call_args
-    assert done_call.args == (job_arg.job_id, JobStatus.DONE)
-    assert done_call.kwargs["finished_at"] is not None
+    # AnalysisJob marked DONE (skips report) — 2 호출:
+    #   (a) finished_at + DONE
+    #   (b) risk_level 동기화 (list_analysis_jobs 응답에 risk_level 노출 위함)
+    assert tables.jobs.update_status.await_count == 2
+    done_calls = tables.jobs.update_status.call_args_list
+    # 두 호출 모두 같은 job_id 와 DONE
+    assert all(c.args == (job_arg.job_id, JobStatus.DONE) for c in done_calls)
+    # 첫 호출엔 finished_at, 두 번째 호출엔 risk_level
+    assert done_calls[0].kwargs.get("finished_at") is not None
+    assert done_calls[1].kwargs.get("risk_level") is not None
 
     # Snapshot blob saved
     blob.upload.assert_awaited_once()

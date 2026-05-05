@@ -165,6 +165,89 @@ async def test_analysis_jobs_repo_update_status_only_sets_provided_fields() -> N
     assert "updated_at" in sent
 
 
+async def test_analysis_jobs_repo_update_status_includes_risk_level_when_given() -> None:
+    """list_analysis_jobs 가 join 없이 risk_level 노출하기 위해 update_status 가 함께 저장."""
+    client = _mock_table_client()
+    repo = AnalysisJobsRepo(client, "AnalysisJobs")
+
+    await repo.update_status("j1", JobStatus.DONE, risk_level=RiskLevel.HIGH)
+    sent = client.update_entity.call_args.args[0]
+    assert sent["status"] == "done"
+    assert sent["risk_level"] == "HIGH"
+
+
+async def test_analysis_jobs_repo_list_filtered_paginates_and_filters() -> None:
+    """list_filtered: status/user_id filter + created_at DESC sort + offset/limit 슬라이스."""
+    entities = [
+        {
+            "PartitionKey": "job",
+            "RowKey": f"j{i}",
+            "job_id": f"j{i}",
+            "company_name": "ACME",
+            "company_id": "c-1",
+            "user_id": "user-1",
+            "status": "done",
+            "risk_level": "MEDIUM",
+            "created_at": datetime(2026, 1, i + 1, tzinfo=UTC),
+            "updated_at": datetime(2026, 1, i + 1, tzinfo=UTC),
+        }
+        for i in range(5)  # j0..j4, created_at 1/1..1/5
+    ]
+    client = _mock_table_client()
+    client.query_entities = MagicMock(side_effect=lambda *a, **k: _async_iter(entities))
+    repo = AnalysisJobsRepo(client, "AnalysisJobs")
+
+    page, total = await repo.list_filtered(
+        user_id="user-1", status=JobStatus.DONE, limit=2, offset=1
+    )
+
+    # query filter 가 status / user_id 둘 다 포함
+    sent_filter = client.query_entities.call_args.args[0]
+    assert "PartitionKey eq 'job'" in sent_filter
+    assert "status eq 'done'" in sent_filter
+    assert "user_id eq 'user-1'" in sent_filter
+
+    # 메모리 sort: created_at DESC → j4, j3, j2, j1, j0
+    # offset=1, limit=2 → j3, j2
+    assert total == 5
+    assert [j.job_id for j in page] == ["j3", "j2"]
+
+
+async def test_analysis_jobs_repo_list_filtered_no_filters_returns_all() -> None:
+    entities = [
+        {
+            "PartitionKey": "job",
+            "RowKey": "j1",
+            "job_id": "j1",
+            "company_name": "ACME",
+            "status": "pending",
+            "created_at": _now(),
+            "updated_at": _now(),
+        }
+    ]
+    client = _mock_table_client()
+    client.query_entities = MagicMock(side_effect=lambda *a, **k: _async_iter(entities))
+    repo = AnalysisJobsRepo(client, "AnalysisJobs")
+
+    page, total = await repo.list_filtered()
+    sent_filter = client.query_entities.call_args.args[0]
+    # filter 없이 partition 만
+    assert sent_filter == "PartitionKey eq 'job'"
+    assert total == 1
+    assert page[0].job_id == "j1"
+
+
+async def test_analysis_jobs_repo_list_filtered_escapes_user_id_quote() -> None:
+    """user_id 에 single quote 가 들어와도 query injection 안전."""
+    client = _mock_table_client()
+    client.query_entities = MagicMock(side_effect=lambda *a, **k: _async_iter([]))
+    repo = AnalysisJobsRepo(client, "AnalysisJobs")
+
+    await repo.list_filtered(user_id="O'Hara")
+    sent_filter = client.query_entities.call_args.args[0]
+    assert "user_id eq 'O''Hara'" in sent_filter
+
+
 async def test_analysis_jobs_repo_upsert_wraps_failure() -> None:
     client = _mock_table_client()
     client.upsert_entity = AsyncMock(side_effect=RuntimeError("boom"))
