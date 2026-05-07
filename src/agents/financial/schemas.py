@@ -43,9 +43,17 @@ class ClaudeJudgment(BaseModel):
 
     risk_level: RiskLevel
     risk_score: float = Field(ge=0.0, le=100.0)
+    risk_score_rationale: str = Field(
+        default="",
+        description="점수 산정 근거 (60점 초과 시 필수)",
+    )
     summary: str
     key_risk_factors: list[str] = Field(default_factory=list)
     positive_signals: list[str] = Field(default_factory=list)
+    counter_evidence: list[str] = Field(
+        default_factory=list,
+        description="key_risk_factors 각 항목에 대한 대안적 해석 또는 완화 요인",
+    )
     data_gaps: list[str] = Field(default_factory=list)
     section_insights: list[SectionInsight] = Field(default_factory=list)
 
@@ -60,9 +68,11 @@ class AnalysisResult(BaseModel):
     model: str
     risk_level: RiskLevel
     risk_score: float = Field(ge=0.0, le=100.0)
+    risk_score_rationale: str = Field(default="")
     summary: str
     key_risk_factors: list[str] = Field(default_factory=list)
     positive_signals: list[str] = Field(default_factory=list)
+    counter_evidence: list[str] = Field(default_factory=list)
     data_gaps: list[str] = Field(default_factory=list)
     section_insights: list[SectionInsight] = Field(default_factory=list)
     input_summary: AnalysisInputSummary

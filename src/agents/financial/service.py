@@ -126,9 +126,11 @@ async def analyze_financials_service(
             model=anthropic.model,
             risk_level=judgment.risk_level,
             risk_score=judgment.risk_score,
+            risk_score_rationale=judgment.risk_score_rationale,
             summary=judgment.summary,
             key_risk_factors=judgment.key_risk_factors,
             positive_signals=judgment.positive_signals,
+            counter_evidence=judgment.counter_evidence,
             data_gaps=judgment.data_gaps,
             section_insights=judgment.section_insights,
             input_summary=AnalysisInputSummary(
