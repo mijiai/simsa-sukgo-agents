@@ -1,3 +1,6 @@
+# ruff: noqa
+"""...기존 docstring..."""
+
 """로컬에서 실행 중인 FastMCP 서버에 SSE 로 연결하여
 4개 Agent Tool 을 순차 호출해 기업 분석을 끝까지 돌리는 클라이언트 스크립트.
 

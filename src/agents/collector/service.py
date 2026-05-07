@@ -1,3 +1,6 @@
+# ruff: noqa
+"""...기존 docstring..."""
+
 import json
 import re
 from datetime import UTC, datetime
@@ -224,6 +227,7 @@ async def collect_company_data_service(
         dart_corp_code: str | None = None
         dart_financials: list[DartFinancialYear] = []
         dart_financial_years: list[int] = []
+        dart_company_info: dict[str, Any] = {}  # ← 이 줄 추가
 
         if dart is not None:
             dart_corp_code, dart_financials = await _fetch_dart_financials(

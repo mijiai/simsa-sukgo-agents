@@ -21,12 +21,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.agents.collector.dart_client import (  # noqa: E402
+from src.agents.collector.dart_client import (
     REPRT_CODE_ANNUAL,
+    DartApiError,
     DartClient,
 )
-from src.agents.collector.schemas import DartFinancialYear  # noqa: E402
-from src.config.settings import get_settings  # noqa: E402
+from src.agents.collector.schemas import DartFinancialYear
+from src.config.settings import get_settings
 
 # ─── 출력 헬퍼 ──────────────────────────────────────────────────────────────
 
@@ -74,8 +75,8 @@ async def test_search_corp_code(client: DartClient, company_name: str) -> str | 
         ok(f"corp_code 발견: {BOLD}{corp_code}{RESET}")
     else:
         err("corp_code 를 찾지 못했습니다.")
-        print("   힌트: DART 등기부 공식 명칭과 일치해야 합니다.")
-        print("         예) '카카오' (O)  /  '카카오톡' (X)")
+        print(f"   힌트: DART 등기부 공식 명칭과 일치해야 합니다.")
+        print(f"         예) '카카오' (O)  /  '카카오톡' (X)")
     return corp_code
 
 
@@ -99,8 +100,8 @@ async def test_key_accounts(
 
     if not period_results:
         err("API 응답이 비어있습니다.")
-        print("   힌트:")
-        print("   - DART 미등록 기업이거나 해당 연도 보고서가 아직 미제출일 수 있습니다.")
+        print(f"   힌트:")
+        print(f"   - DART 미등록 기업이거나 해당 연도 보고서가 아직 미제출일 수 있습니다.")
         print(f"   - base_year 를 낮춰 보세요: --year {base_year - 1}")
         return []
 
@@ -424,7 +425,7 @@ def main() -> None:
     if not args.company and not args.corp_code:
         # 인자 없이 실행 시 기본 예시 기업으로 테스트
         print(f"{BOLD}인자 없이 실행 — 기본 예시 기업(카카오)으로 테스트합니다.{RESET}")
-        print("사용법: uv run python scripts/test_dart.py --company 기업명\n")
+        print(f"사용법: uv run python scripts/test_dart.py --company 기업명\n")
         args.company = "카카오"
 
     asyncio.run(
