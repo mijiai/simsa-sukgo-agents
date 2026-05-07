@@ -1,7 +1,9 @@
 """collector service — 자료 수집 비즈니스 로직."""
 
+import asyncio
 import json
 import re
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -68,23 +70,50 @@ async def _extract_all_uploads(
     vision_anthropic: AnthropicClient | None = None,
     vision_model: str | None = None,
 ) -> tuple[list[ExtractedTable], list[ExtractedImage], list[ExtractedDoc]]:
-    """각 업로드 파일을 extract_uploaded_file 로 처리하고 종류별로 분류."""
+    """각 업로드 파일을 병렬로 처리하고 종류별로 분류."""
     tables: list[ExtractedTable] = []
     images: list[ExtractedImage] = []
     docs: list[ExtractedDoc] = []
+
+    if not uploaded_files:
+        return tables, images, docs
+
     prefix = _input_prefix(job_id)
 
-    for filename in uploaded_files:
+    async def _process_one(filename: str) -> dict | None:
         blob_path = f"{prefix}{filename}"
+        t0 = time.monotonic()
         try:
             extracted = await extract_uploaded_file(blob, blob_path, filename)
         except Exception as exc:
             logger.warning("collect.extract.failed", file=filename, error=str(exc))
-            continue
+            return None
         if extracted is None:
             logger.info("collect.extract.unsupported_skipped", file=filename)
-            continue
+            return None
 
+        if extracted["kind"] == "image" and vision_anthropic is not None:
+            extracted["content"]["caption"] = await caption_image_with_vision(
+                blob,
+                extracted["content"]["blob_path"],
+                filename,
+                vision_anthropic,
+                model=vision_model,
+            )
+
+        logger.info(
+            "collect.extract.file_done",
+            file=filename,
+            kind=extracted["kind"],
+            elapsed_s=round(time.monotonic() - t0, 3),
+        )
+        return extracted
+
+    results = await asyncio.gather(*[_process_one(f) for f in uploaded_files])
+
+    for filename, extracted in zip(uploaded_files, results):
+        if extracted is None:
+            continue
         kind = extracted["kind"]
         content = extracted["content"]
         if kind == "xlsx":
@@ -105,15 +134,6 @@ async def _extract_all_uploads(
             for tbl in content["tables"]:
                 tables.append(ExtractedTable(source_file=filename, **tbl))
         elif kind == "image":
-            caption: str | None = None
-            if vision_anthropic is not None:
-                caption = await caption_image_with_vision(
-                    blob,
-                    content["blob_path"],
-                    filename,
-                    vision_anthropic,
-                    model=vision_model,
-                )
             images.append(
                 ExtractedImage(
                     source_file=filename,
@@ -121,7 +141,7 @@ async def _extract_all_uploads(
                     suspected_role=content["suspected_role"],
                     width=content["width"],
                     height=content["height"],
-                    caption=caption,
+                    caption=content.get("caption"),
                 )
             )
 
@@ -142,20 +162,35 @@ async def _fetch_dart_financials(
     Returns:
         (corp_code_or_none, [DartFinancialYear, ...])
     """
+    t0 = time.monotonic()
+
     # corp_code 결정
     cached_code = company.dart_corp_code if company else None
     if cached_code:
         corp_code: str | None = cached_code
         logger.info("dart.corp_code.cache_hit", company=company_name, corp_code=corp_code)
     else:
+        t_search = time.monotonic()
         corp_code = await dart.search_corp_code(company_name)
+        logger.info(
+            "dart.corp_code.search_done",
+            company=company_name,
+            found=corp_code is not None,
+            elapsed_s=round(time.monotonic() - t_search, 3),
+        )
         if not corp_code:
-            logger.info("dart.corp_code.not_found", company=company_name)
             return None, []
 
     # 다년도 주요계정 조회
     try:
+        t_accounts = time.monotonic()
         results = await dart.get_multi_year_accounts(corp_code)
+        logger.info(
+            "dart.multi_year.fetched",
+            corp_code=corp_code,
+            count=len(results),
+            elapsed_s=round(time.monotonic() - t_accounts, 3),
+        )
     except Exception as exc:
         logger.warning("dart.multi_year.failed", corp_code=corp_code, error=str(exc))
         return corp_code, []
@@ -171,6 +206,7 @@ async def _fetch_dart_financials(
         corp_code=corp_code,
         years_fetched=[dy.year for dy in dart_years],
         years_with_data=years_with_data,
+        total_elapsed_s=round(time.monotonic() - t0, 3),
     )
     return corp_code, dart_years
 
@@ -185,6 +221,7 @@ async def collect_company_data_service(
     vision_anthropic: AnthropicClient | None = None,
     vision_model: str | None = None,
 ) -> CollectResponse:
+    t_total = time.monotonic()
     await tables.jobs.update_status(
         request.job_id,
         JobStatus.COLLECTING,
@@ -194,16 +231,21 @@ async def collect_company_data_service(
     logger.info("collect.start", job_id=request.job_id, company=request.company_name)
 
     try:
-        uploaded_files = await _list_uploaded_files(blob, request.job_id)
-        extracted_tables, extracted_images, extracted_docs = await _extract_all_uploads(
-            blob,
-            request.job_id,
-            uploaded_files,
-            vision_anthropic=vision_anthropic,
-            vision_model=vision_model,
+        # ─── Phase 1: 파일 목록 조회 + 회사 조회 + 뉴스 검색 (병렬) ──────
+        t0 = time.monotonic()
+        uploaded_files, company, news = await asyncio.gather(
+            _list_uploaded_files(blob, request.job_id),
+            tables.companies.find_by_name(request.company_name),
+            naver.search(request.company_name, max_results=30),
+        )
+        logger.info(
+            "collect.phase1.done",
+            job_id=request.job_id,
+            elapsed_s=round(time.monotonic() - t0, 3),
+            uploaded_count=len(uploaded_files),
+            news_count=len(news),
         )
 
-        company = await tables.companies.find_by_name(request.company_name)
         company_id = company.company_id if company else None
         if company is None:
             logger.warning(
@@ -211,40 +253,71 @@ async def collect_company_data_service(
                 job_id=request.job_id,
                 company_name=request.company_name,
             )
-
-        news = await naver.search(request.company_name, max_results=30)
-
         internal_credit_data = get_company_data(company_id) if company_id else None
+
+        # ─── Phase 2: 파일 추출 + DART 재무 조회 (병렬) ──────────────────
+        t0 = time.monotonic()
+        dart_corp_code: str | None = None
+        dart_financials: list[DartFinancialYear] = []
+
+        if dart is not None:
+            (extracted_tables, extracted_images, extracted_docs), (dart_corp_code, dart_financials) = (
+                await asyncio.gather(
+                    _extract_all_uploads(
+                        blob,
+                        request.job_id,
+                        uploaded_files,
+                        vision_anthropic=vision_anthropic,
+                        vision_model=vision_model,
+                    ),
+                    _fetch_dart_financials(dart, request.company_name, company),
+                )
+            )
+        else:
+            extracted_tables, extracted_images, extracted_docs = await _extract_all_uploads(
+                blob,
+                request.job_id,
+                uploaded_files,
+                vision_anthropic=vision_anthropic,
+                vision_model=vision_model,
+            )
+            logger.info("collect.dart.skipped_no_client", job_id=request.job_id)
+
+        dart_financial_years = [dy.year for dy in dart_financials if dy.has_data]
+        logger.info(
+            "collect.phase2.done",
+            job_id=request.job_id,
+            elapsed_s=round(time.monotonic() - t0, 3),
+            extracted_tables=len(extracted_tables),
+            extracted_images=len(extracted_images),
+            extracted_docs=len(extracted_docs),
+            dart_corp_code=dart_corp_code,
+            dart_financial_years=dart_financial_years,
+        )
 
         financial_years = _infer_financial_years(extracted_tables)
 
-        # ─── DART 재무 데이터 조회 ─────────────────────────────────────────
-        dart_corp_code: str | None = None
-        dart_financials: list[DartFinancialYear] = []
-        dart_financial_years: list[int] = []
+        # ─── Phase 3: DART 기업개황 (corp_code 확인 후 순차) ─────────────
         dart_company_info: dict[str, Any] = {}
-
-        if dart is not None:
-            dart_corp_code, dart_financials = await _fetch_dart_financials(
-                dart,
-                request.company_name,
-                company,
-            )
-            dart_financial_years = [dy.year for dy in dart_financials if dy.has_data]
-
-            # 기업개황 — corp_code 가 확인된 경우에만 호출
-            if dart_corp_code:
-                try:
-                    dart_company_info = await dart.get_company_info(dart_corp_code)
-                except Exception as exc:
-                    logger.warning(
-                        "collect.dart_company.failed",
-                        corp_code=dart_corp_code,
-                        error=str(exc),
-                    )
+        if dart is not None and dart_corp_code:
+            t0 = time.monotonic()
+            try:
+                dart_company_info = await dart.get_company_info(dart_corp_code)
+                logger.info(
+                    "collect.dart_company.done",
+                    job_id=request.job_id,
+                    corp_code=dart_corp_code,
+                    elapsed_s=round(time.monotonic() - t0, 3),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "collect.dart_company.failed",
+                    corp_code=dart_corp_code,
+                    error=str(exc),
+                )
 
             # Companies 테이블에 dart_corp_code 를 캐시 (다음 분석 시 검색 skip)
-            if dart_corp_code and company is not None and company.dart_corp_code != dart_corp_code:
+            if company is not None and company.dart_corp_code != dart_corp_code:
                 from src.storage.schemas import Company as CompanySchema
 
                 updated = CompanySchema(
@@ -264,8 +337,6 @@ async def collect_company_data_service(
                     company_id=company.company_id,
                     dart_corp_code=dart_corp_code,
                 )
-        else:
-            logger.info("collect.dart.skipped_no_client", job_id=request.job_id)
 
         # ─── raw.json 조립 ─────────────────────────────────────────────────
         raw_payload: dict[str, Any] = {
@@ -301,6 +372,7 @@ async def collect_company_data_service(
         logger.info(
             "collect.done",
             job_id=request.job_id,
+            total_elapsed_s=round(time.monotonic() - t_total, 3),
             news_count=len(news),
             files_count=len(uploaded_files),
             extracted_tables=len(extracted_tables),
