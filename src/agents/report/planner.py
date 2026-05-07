@@ -158,7 +158,10 @@ def _summarize_extracted_docs(docs: list[dict[str, Any]]) -> list[dict[str, Any]
 
 
 def build_planner_user_prompt(
-    template: ReportTemplate, raw: dict[str, Any], analysis: dict[str, Any]
+    template: ReportTemplate,
+    raw: dict[str, Any],
+    analysis: dict[str, Any],
+    custom_prompt: str = "",
 ) -> str:
     template_summary = _summarize_template(template)
     extracted_summary = _summarize_extracted_tables(raw.get("extracted_tables") or [])
@@ -166,8 +169,16 @@ def build_planner_user_prompt(
     images = raw.get("extracted_images") or []
     insights_summary = _summarize_section_insights(analysis.get("section_insights") or [])
 
+    custom_prompt_section = ""
+    if custom_prompt and custom_prompt.strip():
+        custom_prompt_section = f"""
+[사용자 지침 — 데이터 매핑 시 최우선 반영]
+{custom_prompt.strip()}
+
+"""
+
     # 사람 읽기 + LLM 파싱 둘 다 좋게 JSON 으로 직렬화
-    return f"""[템플릿 스펙 — 채울 슬롯 목록]
+    return f"""{custom_prompt_section}[템플릿 스펙 — 채울 슬롯 목록]
 {json.dumps(template_summary, ensure_ascii=False, indent=2)}
 
 [raw.extracted_tables — 채울 수 있는 표 데이터]
@@ -231,9 +242,10 @@ async def run_planner(
     raw: dict[str, Any],
     analysis: dict[str, Any],
     anthropic: AnthropicClient,
+    custom_prompt: str = "",
 ) -> ReportPlan:
     """LLM 1회 호출 → ReportPlan 반환. 검증 실패 시 안전 fallback."""
-    user_prompt = build_planner_user_prompt(template, raw, analysis)
+    user_prompt = build_planner_user_prompt(template, raw, analysis, custom_prompt)
     try:
         plan_dict = await anthropic.complete_json(system=PLANNER_SYSTEM_PROMPT, user=user_prompt)
     except Exception as exc:
