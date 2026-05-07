@@ -37,6 +37,10 @@ build-backend = "hatchling.build"
 packages = ["src"]
 
 [tool.ruff]
+extend-exclude = [
+    "scripts/test_dart.py",
+    "scripts/test_report_data.py",
+]
 line-length = 100
 target-version = "py312"
 
