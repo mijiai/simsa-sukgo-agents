@@ -42,7 +42,7 @@ async def _list_uploaded_files(blob: BlobStore, job_id: str) -> list[str]:
     blob_paths = await blob.list_prefix(prefix)
     prompt_path = f"{prefix}prompt.txt"
     return [
-        path[len(prefix):]
+        path[len(prefix) :]
         for path in blob_paths
         if path != prompt_path and path.startswith(prefix)
     ]
@@ -106,7 +106,11 @@ async def _extract_all_uploads(
             caption: str | None = None
             if vision_anthropic is not None:
                 caption = await caption_image_with_vision(
-                    blob, content["blob_path"], filename, vision_anthropic, model=vision_model,
+                    blob,
+                    content["blob_path"],
+                    filename,
+                    vision_anthropic,
+                    model=vision_model,
                 )
             images.append(
                 ExtractedImage(
@@ -180,7 +184,9 @@ async def collect_company_data_service(
     vision_model: str | None = None,
 ) -> CollectResponse:
     await tables.jobs.update_status(
-        request.job_id, JobStatus.COLLECTING, current_agent=AgentName.COLLECT,
+        request.job_id,
+        JobStatus.COLLECTING,
+        current_agent=AgentName.COLLECT,
     )
     await tables.agent_status.update_running(request.job_id, AgentName.COLLECT)
     logger.info("collect.start", job_id=request.job_id, company=request.company_name)
@@ -188,15 +194,21 @@ async def collect_company_data_service(
     try:
         uploaded_files = await _list_uploaded_files(blob, request.job_id)
         extracted_tables, extracted_images, extracted_docs = await _extract_all_uploads(
-            blob, request.job_id, uploaded_files,
-            vision_anthropic=vision_anthropic, vision_model=vision_model,
+            blob,
+            request.job_id,
+            uploaded_files,
+            vision_anthropic=vision_anthropic,
+            vision_model=vision_model,
         )
 
         company = await tables.companies.find_by_name(request.company_name)
         company_id = company.company_id if company else None
         if company is None:
-            logger.warning("collect.company.not_found", job_id=request.job_id,
-                           company_name=request.company_name)
+            logger.warning(
+                "collect.company.not_found",
+                job_id=request.job_id,
+                company_name=request.company_name,
+            )
 
         news = await naver.search(request.company_name, max_results=30)
 
@@ -212,25 +224,26 @@ async def collect_company_data_service(
         dart_corp_code: str | None = None
         dart_financials: list[DartFinancialYear] = []
         dart_financial_years: list[int] = []
-        dart_company_info: dict[str, Any] = {}
 
         if dart is not None:
             dart_corp_code, dart_financials = await _fetch_dart_financials(
-                dart, request.company_name, company,
+                dart,
+                request.company_name,
+                company,
             )
             dart_financial_years = [dy.year for dy in dart_financials if dy.has_data]
 
             # 기업개황 — corp_code 가 확인된 경우에만 호출
             if dart_corp_code:
                 try:
-                    dart_company_info = await dart.get_company_info(dart_corp_code)
+                    await dart.get_company_info(dart_corp_code)
                 except Exception as exc:
                     logger.warning(
                         "collect.dart_company.failed",
-                        corp_code=dart_corp_code, error=str(exc),
+                        corp_code=dart_corp_code,
+                        error=str(exc),
                     )
-                    dart_company_info = {}
-                    
+
             # Companies 테이블에 dart_corp_code 를 캐시 (다음 분석 시 검색 skip)
             if dart_corp_code and company is not None and company.dart_corp_code != dart_corp_code:
                 from src.storage.schemas import Company as CompanySchema
@@ -271,6 +284,7 @@ async def collect_company_data_service(
             # DART 데이터 — raw_items 포함 (전체 저장, prompt 에는 accounts 만 inject)
             "dart_corp_code": dart_corp_code,
             "dart_financials": [dy.model_dump(mode="json") for dy in dart_financials],
+            "dart_company_info": dart_company_info,
         }
 
         raw_path = _raw_blob_path(request.job_id)
@@ -281,7 +295,9 @@ async def collect_company_data_service(
         )
 
         await tables.agent_status.update_done(
-            request.job_id, AgentName.COLLECT, output_blob_path=raw_path,
+            request.job_id,
+            AgentName.COLLECT,
+            output_blob_path=raw_path,
         )
         logger.info(
             "collect.done",

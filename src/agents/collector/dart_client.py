@@ -17,7 +17,6 @@ import xml.etree.ElementTree as ET
 import zipfile
 from io import BytesIO
 from typing import Any
-from datetime import UTC, datetime
 
 import httpx
 
@@ -100,17 +99,31 @@ _ACCOUNT_NM_FALLBACK: dict[str, str] = {
     "총포괄손익(손실)": "total_comprehensive_income",
 }
 
-_VALID_ACCOUNT_FIELDS = frozenset({
-    "total_assets", "total_liabilities", "total_equity",
-    "current_assets", "noncurrent_assets",
-    "current_liabilities", "noncurrent_liabilities",
-    "revenue", "gross_profit", "operating_income",
-    "net_income", "net_income_parent",
-    "operating_cf", "finance_costs", "interest_expense", "depreciation",
-    # 추가
-    "paid_in_capital", "retained_earnings",
-    "pretax_income", "total_comprehensive_income",
-})
+_VALID_ACCOUNT_FIELDS = frozenset(
+    {
+        "total_assets",
+        "total_liabilities",
+        "total_equity",
+        "current_assets",
+        "noncurrent_assets",
+        "current_liabilities",
+        "noncurrent_liabilities",
+        "revenue",
+        "gross_profit",
+        "operating_income",
+        "net_income",
+        "net_income_parent",
+        "operating_cf",
+        "finance_costs",
+        "interest_expense",
+        "depreciation",
+        # 추가
+        "paid_in_capital",
+        "retained_earnings",
+        "pretax_income",
+        "total_comprehensive_income",
+    }
+)
 
 # corp_cls 우선순위 (유가증권 > 코스닥 > 코넥스 > 기타)
 _CORP_CLS_PRIORITY = {"Y": 0, "K": 1, "N": 2, "E": 3}
@@ -259,7 +272,7 @@ class DartClient:
 
         logger.info("dart.corp_map.loaded", total_companies=len(corp_map))
         return corp_map
-    
+
     async def get_company_info(self, corp_code: str) -> dict[str, Any]:
         """기업개황 API — corp_code 로 회사 기본정보 조회.
 
@@ -280,8 +293,7 @@ class DartClient:
 
         # company.json 응답은 list 가 아니라 top-level 에 필드가 직접 들어있다.
         info = {
-            k: v for k, v in data.items()
-            if k not in {"status", "message"} and v not in (None, "")
+            k: v for k, v in data.items() if k not in {"status", "message"} and v not in (None, "")
         }
         logger.info(
             "dart.company.done",
@@ -318,7 +330,7 @@ class DartClient:
 
         logger.info("dart.multi_year.no_data", corp_code=corp_code, tried=candidates)
         return []
-    
+
     async def _get_corp_map(self) -> dict[str, list[tuple[str, str, str]]]:
         """캐시된 corp_map 반환. 없으면 다운로드."""
         if self._corp_map is None:
@@ -384,7 +396,9 @@ class DartClient:
         except DartApiError as exc:
             logger.warning(
                 "dart.key_accounts.api_error",
-                corp_code=corp_code, year=year, error=str(exc),
+                corp_code=corp_code,
+                year=year,
+                error=str(exc),
             )
             return []
 
@@ -407,17 +421,19 @@ class DartClient:
             accounts = _extract_accounts(priority_items, amount_key)
             has_data = any(v is not None for v in accounts.values())
 
-            results.append({
-                "year": period_year,
-                "period": amount_key.split("_")[0],
-                "period_nm": period_nm,
-                "reprt_code": reprt_code,
-                "fs_div": fs_div,
-                "currency": currency,
-                "accounts": accounts,
-                "has_data": has_data,
-                "raw_items": priority_items if offset == 0 else [],
-            })
+            results.append(
+                {
+                    "year": period_year,
+                    "period": amount_key.split("_")[0],
+                    "period_nm": period_nm,
+                    "reprt_code": reprt_code,
+                    "fs_div": fs_div,
+                    "currency": currency,
+                    "accounts": accounts,
+                    "has_data": has_data,
+                    "raw_items": priority_items if offset == 0 else [],
+                }
+            )
 
         logger.info(
             "dart.key_accounts.done",

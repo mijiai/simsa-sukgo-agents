@@ -110,10 +110,17 @@ _ACCOUNT_LABEL: dict[str, str] = {
 
 # prompt 에 포함할 계정 우선순위 (너무 많으면 token 낭비)
 _PROMPT_ACCOUNT_ORDER = [
-    "total_assets", "total_liabilities", "total_equity",
-    "current_assets", "current_liabilities",
-    "revenue", "operating_income", "net_income",
-    "operating_cf", "interest_expense", "finance_costs",
+    "total_assets",
+    "total_liabilities",
+    "total_equity",
+    "current_assets",
+    "current_liabilities",
+    "revenue",
+    "operating_income",
+    "net_income",
+    "operating_cf",
+    "interest_expense",
+    "finance_costs",
 ]
 
 
@@ -153,7 +160,12 @@ def _format_dart_financials(dart_financials: list[dict[str, Any]]) -> str:
     years = [dy["year"] for dy in years_data]
     fs_divs = [dy.get("fs_div", "") for dy in years_data]
     # 연결/별도 표시
-    fs_note = "연결재무제표" if "CFS" in fs_divs else "별도재무제표" if "OFS" in fs_divs else "재무제표"
+    if "CFS" in fs_divs:
+        fs_note = "연결재무제표"
+    elif "OFS" in fs_divs:
+        fs_note = "별도재무제표"
+    else:
+        fs_note = "재무제표"
 
     lines: list[str] = [
         f"=== DART 공시 주요계정 (단위: 억원, {fs_note}) ===",
@@ -320,7 +332,9 @@ def build_user_prompt(
     dart_corp_code = raw.get("dart_corp_code") or ""
 
     dart_section = _format_dart_financials(dart_financials)
-    dart_corp_note = f"DART 고유번호: {dart_corp_code}" if dart_corp_code else "DART 고유번호: 미확인"
+    dart_corp_note = (
+        f"DART 고유번호: {dart_corp_code}" if dart_corp_code else "DART 고유번호: 미확인"
+    )
 
     return f"""분석 대상 기업: {company_name}
 {dart_corp_note}

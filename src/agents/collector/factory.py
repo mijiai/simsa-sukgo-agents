@@ -1,5 +1,5 @@
 from src.agents.collector.clients import NaverNewsClient
-from src.agents.collector.dart_client import DartClient, DartApiError
+from src.agents.collector.dart_client import DartApiError, DartClient
 from src.config.logging import get_logger
 from src.config.settings import get_settings
 

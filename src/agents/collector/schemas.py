@@ -43,6 +43,7 @@ class ExtractedDoc(BaseModel):
 
 # ─── DART 재무 데이터 스키마 ─────────────────────────────────────────────────
 
+
 class DartKeyAccounts(BaseModel):
     """단일회사 주요계정 정규화 결과 — 원단위(KRW)."""
 
@@ -81,10 +82,10 @@ class DartFinancialYear(BaseModel):
     """
 
     year: int
-    period: str = ""          # "thstrm" | "frmtrm" | "bfefrmtrm"
-    period_nm: str = ""       # DART 원본 기간명 (예: "제25기 (2024.01.01~2024.12.31)")
+    period: str = ""  # "thstrm" | "frmtrm" | "bfefrmtrm"
+    period_nm: str = ""  # DART 원본 기간명 (예: "제25기 (2024.01.01~2024.12.31)")
     reprt_code: str = "11011"
-    fs_div: str = ""          # "CFS"(연결) | "OFS"(별도) | ""
+    fs_div: str = ""  # "CFS"(연결) | "OFS"(별도) | ""
     currency: str = "KRW"
     accounts: DartKeyAccounts
     has_data: bool = False
@@ -100,10 +101,7 @@ class DartFinancialYear(BaseModel):
         """
         accounts_raw: dict[str, Any] = result.get("accounts") or {}
         # 유효 필드만 추출 — 알 수 없는 키가 있어도 ValidationError 방지
-        valid_accounts = {
-            k: v for k, v in accounts_raw.items()
-            if k in _DART_KEY_ACCOUNT_FIELDS
-        }
+        valid_accounts = {k: v for k, v in accounts_raw.items() if k in _DART_KEY_ACCOUNT_FIELDS}
         return cls(
             year=result["year"],
             period=result.get("period", ""),

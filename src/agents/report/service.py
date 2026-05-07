@@ -123,6 +123,7 @@ def _build_company_overview_table(company_info: dict) -> PlannedTable:
         data_gap=False,
     )
 
+
 def _format_eok(val: int | None) -> str:
     if val is None:
         return "N/A"
@@ -154,27 +155,37 @@ def _build_dart_kpi_table(dart_financials: list[dict]) -> PlannedTable:
         return cells
 
     rows = [
-        _row("부채비율 (%)",
-             lambda a: _safe_ratio(a.get("total_liabilities"), a.get("total_equity")),
-             "{:.1f}"),
-        _row("유동비율 (%)",
-             lambda a: _safe_ratio(a.get("current_assets"), a.get("current_liabilities")),
-             "{:.1f}"),
-        _row("영업이익률 (%)",
-             lambda a: _safe_ratio(a.get("operating_income"), a.get("revenue")),
-             "{:.1f}"),
-        _row("순이익률 (%)",
-             lambda a: _safe_ratio(a.get("net_income"), a.get("revenue")),
-             "{:.1f}"),
-        _row("이자보상배율 (배)",
-             lambda a: _safe_ratio(
-                 a.get("operating_income"),
-                 a.get("interest_expense") or a.get("finance_costs"),
-                 scale=1.0),
-             "{:.2f}"),
+        _row(
+            "부채비율 (%)",
+            lambda a: _safe_ratio(a.get("total_liabilities"), a.get("total_equity")),
+            "{:.1f}",
+        ),
+        _row(
+            "유동비율 (%)",
+            lambda a: _safe_ratio(a.get("current_assets"), a.get("current_liabilities")),
+            "{:.1f}",
+        ),
+        _row(
+            "영업이익률 (%)",
+            lambda a: _safe_ratio(a.get("operating_income"), a.get("revenue")),
+            "{:.1f}",
+        ),
+        _row(
+            "순이익률 (%)", lambda a: _safe_ratio(a.get("net_income"), a.get("revenue")), "{:.1f}"
+        ),
+        _row(
+            "이자보상배율 (배)",
+            lambda a: _safe_ratio(
+                a.get("operating_income"),
+                a.get("interest_expense") or a.get("finance_costs"),
+                scale=1.0,
+            ),
+            "{:.2f}",
+        ),
     ]
     return PlannedTable(
-        columns=columns, rows=rows,
+        columns=columns,
+        rows=rows,
         source_label_override="※ 출처: DART 전자공시 사업보고서 (자동 계산)",
         data_gap=False,
     )
@@ -208,7 +219,8 @@ def _build_dart_statement_table(dart_financials: list[dict]) -> PlannedTable:
         return PlannedTable(data_gap=True)
 
     return PlannedTable(
-        columns=columns, rows=rows,
+        columns=columns,
+        rows=rows,
         source_label_override="※ 출처: DART 전자공시 사업보고서",
         data_gap=False,
     )
@@ -228,9 +240,7 @@ def _inject_dart_tables(
         overrides.append(
             ("2_loan_summary", "주요 재무지표", _build_dart_kpi_table(dart_financials))
         )
-        overrides.append(
-            ("5_finance", "재무제표", _build_dart_statement_table(dart_financials))
-        )
+        overrides.append(("5_finance", "재무제표", _build_dart_statement_table(dart_financials)))
 
     for section_id, table_id, new_table in overrides:
         section = plan.sections.get(section_id)
@@ -246,6 +256,7 @@ def _inject_dart_tables(
             row_count=len(new_table.rows),
         )
     return plan
+
 
 # DART 계정 키 → 한글 표시명
 _DART_ACCOUNT_LABELS: dict[str, str] = {
@@ -297,7 +308,9 @@ def _fmt_eok(val: int | None) -> str:
     return f"{eok:,.1f}억"
 
 
-def _dart_financials_to_extracted_table(dart_financials: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _dart_financials_to_extracted_table(
+    dart_financials: list[dict[str, Any]],
+) -> dict[str, Any] | None:
     """DART 재무 데이터(dart_financials) → extracted_table 포맷 변환.
 
     planner 가 5_finance 섹션의 '재무제표' 표 슬롯을 채울 때
@@ -393,6 +406,7 @@ def _build_sections(
         plan_section = plan.sections.get(spec.section_id.value)
         if plan_section is None:
             from src.agents.report.planner import PlannedSection
+
             plan_section = PlannedSection()
         narrative = narratives.narratives.get(spec.section_id.value, "")
         sections[spec.section_id] = build_section_content(
@@ -481,7 +495,6 @@ async def report_generate_service(
             raw.get("dart_financials") or [],
             raw.get("dart_company_info") or {},
         )
-
 
         # 5. Narrative Writer LLM (1회 호출)
         narratives = await run_narrative_writer(

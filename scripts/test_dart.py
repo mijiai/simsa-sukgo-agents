@@ -21,13 +21,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.agents.collector.dart_client import (
+from src.agents.collector.dart_client import (  # noqa: E402
     REPRT_CODE_ANNUAL,
-    DartApiError,
     DartClient,
 )
-from src.agents.collector.schemas import DartFinancialYear
-from src.config.settings import get_settings
+from src.agents.collector.schemas import DartFinancialYear  # noqa: E402
+from src.config.settings import get_settings  # noqa: E402
 
 # ─── 출력 헬퍼 ──────────────────────────────────────────────────────────────
 
@@ -66,6 +65,7 @@ def fmt_amount(val: int | None, unit: str = "억원") -> str:
 
 # ─── 검증 함수 ──────────────────────────────────────────────────────────────
 
+
 async def test_search_corp_code(client: DartClient, company_name: str) -> str | None:
     """회사명 → corp_code 검색 검증."""
     header(f"[1] corp_code 검색: {company_name}")
@@ -74,8 +74,8 @@ async def test_search_corp_code(client: DartClient, company_name: str) -> str | 
         ok(f"corp_code 발견: {BOLD}{corp_code}{RESET}")
     else:
         err("corp_code 를 찾지 못했습니다.")
-        print(f"   힌트: DART 등기부 공식 명칭과 일치해야 합니다.")
-        print(f"         예) '카카오' (O)  /  '카카오톡' (X)")
+        print("   힌트: DART 등기부 공식 명칭과 일치해야 합니다.")
+        print("         예) '카카오' (O)  /  '카카오톡' (X)")
     return corp_code
 
 
@@ -99,8 +99,8 @@ async def test_key_accounts(
 
     if not period_results:
         err("API 응답이 비어있습니다.")
-        print(f"   힌트:")
-        print(f"   - DART 미등록 기업이거나 해당 연도 보고서가 아직 미제출일 수 있습니다.")
+        print("   힌트:")
+        print("   - DART 미등록 기업이거나 해당 연도 보고서가 아직 미제출일 수 있습니다.")
         print(f"   - base_year 를 낮춰 보세요: --year {base_year - 1}")
         return []
 
@@ -124,16 +124,16 @@ async def test_key_accounts(
         # 주요 계정 출력
         acct = dy.accounts
         rows = [
-            ("자산총계",        acct.total_assets),
-            ("부채총계",        acct.total_liabilities),
-            ("자본총계",        acct.total_equity),
-            ("유동자산",        acct.current_assets),
-            ("유동부채",        acct.current_liabilities),
-            ("매출액",          acct.revenue),
-            ("영업이익",        acct.operating_income),
-            ("당기순이익",      acct.net_income),
+            ("자산총계", acct.total_assets),
+            ("부채총계", acct.total_liabilities),
+            ("자본총계", acct.total_equity),
+            ("유동자산", acct.current_assets),
+            ("유동부채", acct.current_liabilities),
+            ("매출액", acct.revenue),
+            ("영업이익", acct.operating_income),
+            ("당기순이익", acct.net_income),
             ("영업활동현금흐름", acct.operating_cf),
-            ("이자비용",        acct.interest_expense or acct.finance_costs),
+            ("이자비용", acct.interest_expense or acct.finance_costs),
         ]
         for label, val in rows:
             print(f"    {label:<14}: {fmt_amount(val)}")
@@ -212,20 +212,17 @@ async def test_raw_item_sample(period_results: list[dict]) -> None:
     # ── 전기/전전기 금액 존재 여부 진단 ────────────────────────────────────
     # 2024/2023 has_data=False 원인: frmtrm/bfefrmtrm 금액이 실제로 비어있는지 확인
     print(f"\n  {BOLD}[전기·전전기 금액 원본값 확인]{RESET}")
-    print(f"  {'계정명':<20}  {'당기(thstrm)':>20}  {'전기(frmtrm)':>20}  {'전전기(bfefrmtrm)':>20}")
-    print(f"  {'-'*84}")
+    print(
+        f"  {'계정명':<20}  {'당기(thstrm)':>20}  {'전기(frmtrm)':>20}  {'전전기(bfefrmtrm)':>20}"
+    )
+    print(f"  {'-' * 84}")
     for aid, anm, item, key in mapped:
         t = item.get("thstrm_amount") or "-"
         f = item.get("frmtrm_amount") or "-"
         b = item.get("bfefrmtrm_amount") or "-"
         f_color = GREEN if f != "-" else RED
         b_color = GREEN if b != "-" else RED
-        print(
-            f"  {anm:<20}"
-            f"  {t:>20}"
-            f"  {f_color}{f:>20}{RESET}"
-            f"  {b_color}{b:>20}{RESET}"
-        )
+        print(f"  {anm:<20}  {t:>20}  {f_color}{f:>20}{RESET}  {b_color}{b:>20}{RESET}")
 
     # 결론 출력
     has_frmtrm = any(
@@ -251,8 +248,10 @@ async def test_raw_item_sample(period_results: list[dict]) -> None:
 
 # ─── 메인 ───────────────────────────────────────────────────────────────────
 
+
 def _get_key_for_item(item: dict) -> str:
     from src.agents.collector.dart_client import _ACCOUNT_ID_MAP, _ACCOUNT_NM_FALLBACK
+
     aid = item.get("account_id", "")
     anm = item.get("account_nm", "").strip()
     return _ACCOUNT_ID_MAP.get(aid) or _ACCOUNT_NM_FALLBACK.get(anm) or ""
@@ -290,8 +289,7 @@ async def debug_extract_accounts(period_results: list[dict]) -> None:
 
         for key, val in accounts.items():
             raw_val = next(
-                (item.get(amount_key, "") for item in items if _get_key_for_item(item) == key),
-                "?"
+                (item.get(amount_key, "") for item in items if _get_key_for_item(item) == key), "?"
             )
             if val is not None:
                 print(f"    {GREEN}✓{RESET} {key:<28}: {val:>20,}  (raw={raw_val!r})")
@@ -315,6 +313,7 @@ async def debug_extract_accounts(period_results: list[dict]) -> None:
             print(f"  bytes = {sample.encode()!r}")
     else:
         warn("frmtrm_amount 값이 모두 비어있음")
+
 
 async def run(
     company_name: str | None,
@@ -359,23 +358,25 @@ async def run(
                     dy.period, dy.period
                 )
                 fs_label = {"CFS": "연결", "OFS": "별도"}.get(dy.fs_div, dy.fs_div or "?")
-                has_label = f"{GREEN}데이터 있음{RESET}" if dy.has_data else f"{RED}데이터 없음{RESET}"
+                has_label = (
+                    f"{GREEN}데이터 있음{RESET}" if dy.has_data else f"{RED}데이터 없음{RESET}"
+                )
                 print(f"\n  {BOLD}{period_label} ({dy.year}년){RESET}  [{fs_label}]  {has_label}")
                 if dy.period_nm:
                     print(f"    기간명: {dy.period_nm}")
                 if dy.has_data:
                     acct = dy.accounts
                     for label, val in [
-                        ("자산총계",        acct.total_assets),
-                        ("부채총계",        acct.total_liabilities),
-                        ("자본총계",        acct.total_equity),
-                        ("유동자산",        acct.current_assets),
-                        ("유동부채",        acct.current_liabilities),
-                        ("매출액",          acct.revenue),
-                        ("영업이익",        acct.operating_income),
-                        ("당기순이익",      acct.net_income),
+                        ("자산총계", acct.total_assets),
+                        ("부채총계", acct.total_liabilities),
+                        ("자본총계", acct.total_equity),
+                        ("유동자산", acct.current_assets),
+                        ("유동부채", acct.current_liabilities),
+                        ("매출액", acct.revenue),
+                        ("영업이익", acct.operating_income),
+                        ("당기순이익", acct.net_income),
                         ("영업활동현금흐름", acct.operating_cf),
-                        ("이자비용",        acct.interest_expense or acct.finance_costs),
+                        ("이자비용", acct.interest_expense or acct.finance_costs),
                     ]:
                         print(f"    {label:<14}: {fmt_amount(val)}")
                     _print_ratios(acct, dy.year)
@@ -398,30 +399,42 @@ async def run(
 
 def main() -> None:
     from datetime import datetime
+
     default_year = datetime.now().year - 1  # 직전 연도 (사업보고서 제출 완료 기준)
 
     parser = argparse.ArgumentParser(description="DART 데이터 수집 로컬 검증")
     parser.add_argument("--company", "-c", help="검색할 기업명 (예: 카카오)")
     parser.add_argument("--corp-code", help="DART 고유번호 직접 지정 (8자리)")
-    parser.add_argument("--year", "-y", type=int, default=default_year,
-                        help=f"기준 사업연도 (default: {default_year})")
-    parser.add_argument("--reprt-code", "-r", default=REPRT_CODE_ANNUAL,
-                        choices=["11011", "11012", "11013", "11014"],
-                        help="보고서 종류 (default: 11011 사업보고서)")
+    parser.add_argument(
+        "--year",
+        "-y",
+        type=int,
+        default=default_year,
+        help=f"기준 사업연도 (default: {default_year})",
+    )
+    parser.add_argument(
+        "--reprt-code",
+        "-r",
+        default=REPRT_CODE_ANNUAL,
+        choices=["11011", "11012", "11013", "11014"],
+        help="보고서 종류 (default: 11011 사업보고서)",
+    )
     args = parser.parse_args()
 
     if not args.company and not args.corp_code:
         # 인자 없이 실행 시 기본 예시 기업으로 테스트
         print(f"{BOLD}인자 없이 실행 — 기본 예시 기업(카카오)으로 테스트합니다.{RESET}")
-        print(f"사용법: uv run python scripts/test_dart.py --company 기업명\n")
+        print("사용법: uv run python scripts/test_dart.py --company 기업명\n")
         args.company = "카카오"
 
-    asyncio.run(run(
-        company_name=args.company,
-        corp_code=args.corp_code,
-        base_year=args.year,
-        reprt_code=args.reprt_code,
-    ))
+    asyncio.run(
+        run(
+            company_name=args.company,
+            corp_code=args.corp_code,
+            base_year=args.year,
+            reprt_code=args.reprt_code,
+        )
+    )
 
 
 if __name__ == "__main__":

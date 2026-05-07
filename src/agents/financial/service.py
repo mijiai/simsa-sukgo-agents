@@ -84,6 +84,7 @@ def _filter_section_insights(judgment_dict: dict, job_id: str) -> dict:
 
     return judgment_dict
 
+
 async def analyze_financials_service(
     request: AnalyzeRequest,
     blob: BlobStore,
