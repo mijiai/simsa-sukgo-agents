@@ -5,7 +5,11 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from src.agents.collector.factory import close_collector_clients, get_naver_news_client
+from src.agents.collector.factory import (
+    close_collector_clients,
+    get_dart_client,
+    get_naver_news_client,
+)
 from src.agents.collector.internal_db import load_internal_db
 from src.agents.collector.tools import register_collector_tools
 from src.agents.financial.factory import close_anthropic_client, get_anthropic_client
@@ -71,6 +75,14 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
         logger.info("naver.client.initialized")
     else:
         logger.warning("naver.skipped_no_credentials")
+    if settings.dart_api_key:
+        dart = get_dart_client()
+        if dart is not None:
+            try:
+                await dart.warmup()
+                logger.info("dart.corp_map.warmed_up")
+            except Exception as exc:
+                logger.warning("dart.corp_map.warmup_failed", error=str(exc))
     if settings.anthropic_api_key:
         get_anthropic_client()
         get_report_anthropic_client()
