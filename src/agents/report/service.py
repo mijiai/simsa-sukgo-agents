@@ -130,7 +130,11 @@ async def report_generate_service(
         except Exception:
             pass  # prompt.txt 없음 — 정상 케이스
         if custom_prompt:
-            logger.info("report.custom_prompt.loaded", job_id=request.job_id, chars=len(custom_prompt))
+            logger.info(
+                "report.custom_prompt.loaded",
+                job_id=request.job_id,
+                chars=len(custom_prompt),
+            )
 
         # 2. 템플릿 로드
         template = load_template(template_name)
