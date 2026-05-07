@@ -1,5 +1,4 @@
-# ruff: noqa
-"""...기존 docstring..."""
+"""collector service — 자료 수집 비즈니스 로직."""
 
 import json
 import re
@@ -223,11 +222,7 @@ async def collect_company_data_service(
         dart_corp_code: str | None = None
         dart_financials: list[DartFinancialYear] = []
         dart_financial_years: list[int] = []
-
-        dart_corp_code: str | None = None
-        dart_financials: list[DartFinancialYear] = []
-        dart_financial_years: list[int] = []
-        dart_company_info: dict[str, Any] = {}  # ← 이 줄 추가
+        dart_company_info: dict[str, Any] = {}
 
         if dart is not None:
             dart_corp_code, dart_financials = await _fetch_dart_financials(
@@ -240,7 +235,7 @@ async def collect_company_data_service(
             # 기업개황 — corp_code 가 확인된 경우에만 호출
             if dart_corp_code:
                 try:
-                    await dart.get_company_info(dart_corp_code)
+                    dart_company_info = await dart.get_company_info(dart_corp_code)
                 except Exception as exc:
                     logger.warning(
                         "collect.dart_company.failed",
