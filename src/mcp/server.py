@@ -39,10 +39,13 @@ from src.config.logging import get_logger
 from src.config.settings import get_settings
 from src.mcp.job_tools import (
     GetAnalysisJobDetailRequest,
+    ListAnalysisJobsRequest,
     get_analysis_job_detail_service,
+    list_analysis_jobs_service,
     register_job_tools,
 )
 from src.storage.factory import close_storage, get_blob_store, get_table_store
+from src.storage.schemas import JobStatus
 
 logger = get_logger(__name__)
 
@@ -182,6 +185,22 @@ def create_mcp_server() -> FastMCP:
     @mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
     async def health(_request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok"})
+
+    @mcp.custom_route("/api/jobs", methods=["GET"], include_in_schema=False)
+    async def list_jobs(request: Request) -> JSONResponse:
+        params = request.query_params
+        try:
+            req = ListAnalysisJobsRequest(
+                user_id=params.get("user_id"),
+                status=JobStatus(params["status"]) if params.get("status") else None,
+                limit=int(params.get("limit", 50)),
+                offset=int(params.get("offset", 0)),
+            )
+        except (ValueError, KeyError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+        response = await list_analysis_jobs_service(req, get_table_store())
+        return JSONResponse(response.model_dump(mode="json"))
 
     @mcp.custom_route("/api/jobs/{job_id}", methods=["GET"], include_in_schema=False)
     async def get_job_detail(request: Request) -> JSONResponse:
