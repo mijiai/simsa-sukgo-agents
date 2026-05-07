@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     )
 
     # 보고서 작성 Agent
-    report_model: str = Field(default="claude-sonnet-4-6")
+    report_model: str = Field(default="claude-haiku-4-5-20251001")
     report_max_tokens: int = Field(default=8192)
     report_sas_expiry_hours: int = Field(default=168)
     report_samples_blob_prefix: str = Field(default="templates/report_samples/")

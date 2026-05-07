@@ -123,7 +123,7 @@ jobs:
               "AZURE_STORAGE_BLOB_CONTAINER=simsasukgo" \
               "ANTHROPIC_MODEL=claude-haiku-4-5-20251001" \
               "ANTHROPIC_MAX_TOKENS=8192" \
-              "REPORT_MODEL=claude-sonnet-4-6" \
+              "REPORT_MODEL=claude-haiku-4-5-20251001" \
               "REPORT_MAX_TOKENS=8192" \
               "REPORT_SAS_EXPIRY_HOURS=168" \
               "REPORT_SAMPLES_BLOB_PREFIX=templates/report_samples/" \
