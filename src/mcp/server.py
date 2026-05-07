@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -5,6 +6,7 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from src.agents.collector.dart_client import DartClient
 from src.agents.collector.factory import (
     close_collector_clients,
     get_dart_client,
@@ -67,10 +69,23 @@ SERVER_INSTRUCTIONS = """\
 """
 
 
+async def _dart_warmup_safe(dart: DartClient) -> None:
+    """corp_map ZIP 다운로드를 background 에서 진행 — lifespan 의 startup probe 를 막지 않게.
+
+    실패해도 collector 첫 호출 시 lazy load 가 동작하므로 best-effort.
+    """
+    try:
+        await dart.warmup()
+        logger.info("dart.corp_map.warmed_up")
+    except Exception as exc:
+        logger.warning("dart.corp_map.warmup_failed", error=str(exc))
+
+
 @asynccontextmanager
 async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
     settings = get_settings()
     logger.info("mcp_server.startup")
+    dart_warmup_task: asyncio.Task[None] | None = None
     if settings.azure_storage_connection_string:
         get_blob_store()
         get_table_store()
@@ -91,11 +106,7 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
     if settings.dart_api_key:
         dart = get_dart_client()
         if dart is not None:
-            try:
-                await dart.warmup()
-                logger.info("dart.corp_map.warmed_up")
-            except Exception as exc:
-                logger.warning("dart.corp_map.warmup_failed", error=str(exc))
+            dart_warmup_task = asyncio.create_task(_dart_warmup_safe(dart))
     if settings.anthropic_api_key:
         get_anthropic_client()
         get_report_anthropic_client()
@@ -165,6 +176,8 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        if dart_warmup_task is not None and not dart_warmup_task.done():
+            dart_warmup_task.cancel()
         shutdown_scheduler(get_scheduler())
         set_scheduler(None)
         await close_collector_clients()
