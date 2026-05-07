@@ -111,7 +111,7 @@ async def _extract_all_uploads(
 
     results = await asyncio.gather(*[_process_one(f) for f in uploaded_files])
 
-    for filename, extracted in zip(uploaded_files, results):
+    for filename, extracted in zip(uploaded_files, results, strict=False):
         if extracted is None:
             continue
         kind = extracted["kind"]
@@ -261,18 +261,18 @@ async def collect_company_data_service(
         dart_financials: list[DartFinancialYear] = []
 
         if dart is not None:
-            (extracted_tables, extracted_images, extracted_docs), (dart_corp_code, dart_financials) = (
-                await asyncio.gather(
-                    _extract_all_uploads(
-                        blob,
-                        request.job_id,
-                        uploaded_files,
-                        vision_anthropic=vision_anthropic,
-                        vision_model=vision_model,
-                    ),
-                    _fetch_dart_financials(dart, request.company_name, company),
-                )
+            extract_result, dart_result = await asyncio.gather(
+                _extract_all_uploads(
+                    blob,
+                    request.job_id,
+                    uploaded_files,
+                    vision_anthropic=vision_anthropic,
+                    vision_model=vision_model,
+                ),
+                _fetch_dart_financials(dart, request.company_name, company),
             )
+            extracted_tables, extracted_images, extracted_docs = extract_result
+            dart_corp_code, dart_financials = dart_result
         else:
             extracted_tables, extracted_images, extracted_docs = await _extract_all_uploads(
                 blob,
