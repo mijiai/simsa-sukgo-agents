@@ -149,7 +149,11 @@ async def report_generate_service(
 
         # 3.5. Narrative Writer LLM (1회 호출) — 섹션별 서술형 paragraph
         narratives = await run_narrative_writer(
-            template, raw, analysis, plan, anthropic,
+            template,
+            raw,
+            analysis,
+            plan,
+            anthropic,
             samples=get_cached_templates(),
             custom_prompt=custom_prompt,
         )
