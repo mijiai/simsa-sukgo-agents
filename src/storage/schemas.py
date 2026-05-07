@@ -63,6 +63,9 @@ class Company(BaseModel):
     company_name: str
     business_no: str | None = None
     corp_no: str | None = None
+    # DART 고유번호 (8자리 zero-padded). company.json 검색 결과를 캐시해 두어
+    # 동일 기업 재분석 시 API 호출 1회 절약.
+    dart_corp_code: str | None = None
     industry_code: str | None = None
     industry_name: str | None = None
     created_at: datetime
