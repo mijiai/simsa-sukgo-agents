@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import binascii
 import json
@@ -403,7 +404,19 @@ async def get_analysis_job_detail_service(
         logger.warning("get_job_detail.job_not_found", job_id=request.job_id)
         raise EntityNotFoundError("AnalysisJobs", "job", request.job_id) from exc
 
-    agent_rows = await tables.agent_status.list_for_job(request.job_id)
+    jid = request.job_id
+    md_path = f"jobs/{jid}/report/report.md"
+    docx_path = f"jobs/{jid}/report/report.docx"
+
+    # Table 조회 2건 + Blob 다운로드 2건 + exists 체크 2건을 병렬 실행
+    agent_rows, raw, result, md_exists, docx_exists = await asyncio.gather(
+        tables.agent_status.list_for_job(jid),
+        _safe_download_json(blob, f"jobs/{jid}/collect/raw.json"),
+        _safe_download_json(blob, f"jobs/{jid}/analyze/result.json"),
+        blob.exists(md_path),
+        blob.exists(docx_path),
+    )
+
     agents = [
         AgentStatusItem(
             agent_name=a.agent_name,
@@ -424,19 +437,11 @@ async def get_analysis_job_detail_service(
     analyze: AnalyzeSummary | None = None
     report: ReportArtifacts | None = None
 
-    raw = await _safe_download_json(blob, f"jobs/{request.job_id}/collect/raw.json")
     if raw is not None:
         collect = _build_collect_summary(raw)
 
-    result = await _safe_download_json(blob, f"jobs/{request.job_id}/analyze/result.json")
     if result is not None:
         analyze = _build_analyze_summary(result)
-
-    # Report artifacts — md/docx 가 실제로 존재할 때만 SAS URL 발급
-    md_path = f"jobs/{request.job_id}/report/report.md"
-    docx_path = f"jobs/{request.job_id}/report/report.docx"
-    md_exists = await blob.exists(md_path)
-    docx_exists = await blob.exists(docx_path)
     if md_exists or docx_exists:
         report = ReportArtifacts(
             md_blob_path=md_path if md_exists else None,

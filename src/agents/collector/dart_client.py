@@ -337,6 +337,10 @@ class DartClient:
             self._corp_map = await self._load_corp_map()
         return self._corp_map
 
+    async def warmup(self) -> None:
+        """서버 startup 시 corp_map 을 미리 로드해 첫 요청의 ZIP 다운로드 지연을 제거."""
+        await self._get_corp_map()
+
     # ─── 공개 메서드 ─────────────────────────────────────────────────────────
 
     async def search_corp_code(self, company_name: str) -> str | None:
