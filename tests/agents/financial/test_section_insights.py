@@ -171,7 +171,8 @@ async def test_service_invalid_section_id_filtered() -> None:
 
     # invalid section_id 는 _filter_section_insights 에서 제거되어 빈 insights 로 통과
     assert response.section_insights_count == 0
-    
+
+
 async def test_service_propagates_extracted_counts_to_input_summary() -> None:
     raw = _raw_payload(
         extracted_tables=[{"source_file": "a.xlsx"}, {"source_file": "b.xlsx"}],
