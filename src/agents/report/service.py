@@ -121,11 +121,22 @@ async def report_generate_service(
         risk_score = float(analysis["risk_score"])
         company_id = analysis.get("company_id") or raw.get("company_id")
 
+        # 1.1. 사용자 지침(custom prompt) 로드 — 없으면 빈 문자열
+        custom_prompt = ""
+        prompt_blob_path = f"jobs/{request.job_id}/input/prompt.txt"
+        try:
+            prompt_bytes = await blob.download(prompt_blob_path)
+            custom_prompt = prompt_bytes.decode("utf-8").strip()
+        except Exception:
+            pass  # prompt.txt 없음 — 정상 케이스
+        if custom_prompt:
+            logger.info("report.custom_prompt.loaded", job_id=request.job_id, chars=len(custom_prompt))
+
         # 2. 템플릿 로드
         template = load_template(template_name)
 
         # 3. Planner LLM (1회 호출)
-        plan = await run_planner(template, raw, analysis, anthropic)
+        plan = await run_planner(template, raw, analysis, anthropic, custom_prompt=custom_prompt)
         logger.info(
             "report.planner.done",
             job_id=request.job_id,
@@ -134,7 +145,9 @@ async def report_generate_service(
 
         # 3.5. Narrative Writer LLM (1회 호출) — 섹션별 서술형 paragraph
         narratives = await run_narrative_writer(
-            template, raw, analysis, plan, anthropic, samples=get_cached_templates()
+            template, raw, analysis, plan, anthropic,
+            samples=get_cached_templates(),
+            custom_prompt=custom_prompt,
         )
         non_empty_narratives = sum(1 for v in narratives.narratives.values() if v.strip())
         logger.info(
