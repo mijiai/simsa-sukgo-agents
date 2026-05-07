@@ -24,11 +24,6 @@ from src.agents.monitoring.scheduler import (
     setup_scheduler,
     shutdown_scheduler,
 )
-from src.agents.monitoring.schemas import MonitorGetLatestSnapshotRequest
-from src.agents.monitoring.service import (
-    monitor_get_latest_snapshot_service,
-    monitor_list_service,
-)
 from src.agents.monitoring.tools import register_monitoring_tools
 from src.agents.report.factory import (
     close_report_anthropic_client,
@@ -36,18 +31,11 @@ from src.agents.report.factory import (
 )
 from src.agents.report.templates import load_report_samples
 from src.agents.report.tools import register_report_tools
-from src.common.exceptions import EntityNotFoundError
 from src.config.logging import get_logger
 from src.config.settings import get_settings
-from src.mcp.job_tools import (
-    GetAnalysisJobDetailRequest,
-    ListAnalysisJobsRequest,
-    get_analysis_job_detail_service,
-    list_analysis_jobs_service,
-    register_job_tools,
-)
+from src.mcp.job_tools import register_job_tools
+from src.mcp.rest_routes import register_rest_routes
 from src.storage.factory import close_storage, get_blob_store, get_table_store
-from src.storage.schemas import JobStatus
 
 logger = get_logger(__name__)
 
@@ -199,63 +187,7 @@ def create_mcp_server() -> FastMCP:
     async def health(_request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok"})
 
-    @mcp.custom_route("/api/jobs", methods=["GET"], include_in_schema=False)
-    async def list_jobs(request: Request) -> JSONResponse:
-        params = request.query_params
-        try:
-            req = ListAnalysisJobsRequest(
-                user_id=params.get("user_id"),
-                status=JobStatus(params["status"]) if params.get("status") else None,
-                limit=int(params.get("limit", 50)),
-                offset=int(params.get("offset", 0)),
-            )
-        except (ValueError, KeyError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
-
-        response = await list_analysis_jobs_service(req, get_table_store())
-        return JSONResponse(response.model_dump(mode="json"))
-
-    @mcp.custom_route("/api/jobs/{job_id}", methods=["GET"], include_in_schema=False)
-    async def get_job_detail(request: Request) -> JSONResponse:
-        job_id = request.path_params["job_id"]
-        try:
-            req = GetAnalysisJobDetailRequest(job_id=job_id)
-        except ValueError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
-        try:
-            response = await get_analysis_job_detail_service(
-                req,
-                get_table_store(),
-                get_blob_store(),
-                sas_expiry_hours=get_settings().report_sas_expiry_hours,
-            )
-        except EntityNotFoundError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=404)
-        return JSONResponse(response.model_dump(mode="json"))
-
-    @mcp.custom_route("/api/monitors", methods=["GET"], include_in_schema=False)
-    async def list_monitors(_request: Request) -> JSONResponse:
-        response = await monitor_list_service(get_table_store())
-        return JSONResponse(response.model_dump(mode="json"))
-
-    @mcp.custom_route(
-        "/api/monitors/{company_id}/snapshot",
-        methods=["GET"],
-        include_in_schema=False,
-    )
-    async def get_monitor_latest_snapshot(request: Request) -> JSONResponse:
-        company_id = request.path_params["company_id"]
-        try:
-            req = MonitorGetLatestSnapshotRequest(company_id=company_id)
-        except ValueError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
-        try:
-            response = await monitor_get_latest_snapshot_service(
-                req, get_table_store(), get_blob_store()
-            )
-        except EntityNotFoundError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=404)
-        return JSONResponse(response.model_dump(mode="json"))
+    register_rest_routes(mcp)
 
     register_job_tools(mcp)
     register_collector_tools(mcp)
