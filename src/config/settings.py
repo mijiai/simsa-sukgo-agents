@@ -27,12 +27,31 @@ class Settings(BaseSettings):
     naver_client_secret: str = Field(default="")
     lawsuit_api_key: str = Field(default="")
 
+    # DART (전자공시시스템) OpenAPI
+    dart_api_key: str = Field(
+        default="",
+        description="DART OpenAPI 키. 빈 값이면 DART 연동 skip (graceful). "
+        "발급: https://opendart.fss.or.kr/intro/main.do → OpenAPI 신청",
+    )
+    dart_fetch_years_back: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="DART 단일회사 주요계정 조회 연도 수 (현재 연도 기준 역산). "
+        "예) 3 이면 2023/2024/2025 3개년 사업보고서 조회 (2026년 기준).",
+    )
+    dart_reprt_code: str = Field(
+        default="11011",
+        description="조회할 보고서 종류. "
+        "11011: 사업보고서(연간, default), 11012: 반기, 11013: 1분기, 11014: 3분기",
+    )
+
     # Anthropic (재무 분석 Agent)
     anthropic_api_key: str = Field(default="")
     anthropic_model: str = Field(default="claude-haiku-4-5-20251001")
     anthropic_max_tokens: int = Field(
         default=8192,
-        description="financial agent max_tokens. section_insights 추가로 응답 길이 ↑ (PR2)",
+        description="financial agent max_tokens. section_insights 추가로 응답 길이 ↑",
     )
     financial_samples_blob_prefix: str = Field(
         default="templates/financial_samples/",
@@ -44,75 +63,30 @@ class Settings(BaseSettings):
     report_max_tokens: int = Field(default=8192)
     report_sas_expiry_hours: int = Field(default=168)
     report_samples_blob_prefix: str = Field(default="templates/report_samples/")
-    report_base_docx_blob_path: str = Field(
-        default="",
-        description="(PR4) 보고서 base docx Blob 경로. 비어있으면 빈 Document() 로 시작. "
-        "이 파일이 있으면 Document(base) 로 열어 헤더/푸터/표 보더 색상 등 스타일 상속.",
-    )
-    appendix_row_threshold: int = Field(
-        default=35,
-        ge=1,
-        description="(PR4) 표 행이 이 값을 초과하면 자동으로 별첨 섹션으로 분리.",
-    )
+    report_base_docx_blob_path: str = Field(default="")
+    appendix_row_threshold: int = Field(default=35, ge=1)
 
-    # (PR4) 이미지 캡션용 Vision (default off — 비용 0)
-    image_vision_enabled: bool = Field(
-        default=False,
-        description="True 면 collector 가 이미지 1개당 1회 Vision API 호출해 caption 생성.",
-    )
-    image_vision_model: str = Field(
-        default="claude-haiku-4-5-20251001",
-        description="Vision caption 용 모델. Haiku 권장 (싸고 충분).",
-    )
+    # 이미지 캡션용 Vision (default off — 비용 0)
+    image_vision_enabled: bool = Field(default=False)
+    image_vision_model: str = Field(default="claude-haiku-4-5-20251001")
 
-    # Artifact upload (Option 2 — artifact 가 SAS URL 로 직접 Blob PUT)
-    upload_sas_expiry_minutes: int = Field(
-        default=15,
-        ge=1,
-        le=120,
-        description="create_upload_url 이 발급하는 write SAS 의 TTL(분). "
-        "짧을수록 안전하지만 느린 네트워크에서 업로드 도중 만료 위험.",
-    )
-    upload_blob_prefix: str = Field(
-        default="uploads/",
-        description="artifact 업로드가 격리되는 prefix. "
-        "create_analysis_job(file_blob_paths=...) 는 이 prefix 하위만 허용한다 (PR-B).",
-    )
+    # Artifact upload
+    upload_sas_expiry_minutes: int = Field(default=15, ge=1, le=120)
+    upload_blob_prefix: str = Field(default="uploads/")
 
     # Gmail
     gmail_credentials_blob_path: str = Field(default="credentials/gmail_oauth.json")
-    gmail_sender_address: str = Field(
-        default="",
-        description="From: 표시. 빈 값이면 OAuth 계정 자체 사용",
-    )
+    gmail_sender_address: str = Field(default="")
 
-    # 모니터링 알림 (Step 4)
-    alert_min_risk_level: str = Field(
-        default="MEDIUM",
-        description="이 등급 이상으로 *상승* 진입 시에만 알림. LOW/MEDIUM/HIGH/CRITICAL",
-    )
-    alert_dedup_days: int = Field(
-        default=90,
-        description="같은 (company_id, risk_level) 알림이 N일 내 발송됐으면 중복 차단",
-    )
-    alert_first_run_send: bool = Field(
-        default=True,
-        description="첫 실행에서 alert_min_risk_level 이상이면 즉시 발송",
-    )
+    # 모니터링 알림
+    alert_min_risk_level: str = Field(default="MEDIUM")
+    alert_dedup_days: int = Field(default=90)
+    alert_first_run_send: bool = Field(default=True)
 
-    # 모니터링 스케줄러 (Step 4-2)
-    monitoring_batch_cron: str = Field(
-        default="0 9 1 */3 *",
-        description="UTC 기준 cron 표현식. default: 매 3개월 1일 09:00 UTC",
-    )
-    monitoring_catchup_threshold_days: int = Field(
-        default=90,
-        description="컨테이너 재시작 시 마지막 배치가 이만큼 지났으면 즉시 보상 실행",
-    )
-    monitoring_scheduler_enabled: bool = Field(
-        default=True,
-        description="False 면 lifespan 에서 scheduler 시작 skip (테스트/긴급 정지 용)",
-    )
+    # 모니터링 스케줄러
+    monitoring_batch_cron: str = Field(default="0 9 1 */3 *")
+    monitoring_catchup_threshold_days: int = Field(default=90)
+    monitoring_scheduler_enabled: bool = Field(default=True)
 
     # MCP 서버
     mcp_host: str = Field(default="0.0.0.0")

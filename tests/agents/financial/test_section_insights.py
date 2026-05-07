@@ -157,8 +157,8 @@ async def test_service_section_insights_default_empty_for_back_compat() -> None:
     assert payload["risk_level"] == "MEDIUM"
 
 
-async def test_service_invalid_section_id_marks_failed() -> None:
-    """section_id 가 ReportSection enum 에 없는 값이면 ValidationError → failed."""
+async def test_service_invalid_section_id_filtered() -> None:
+    """section_id 가 ReportSection enum 에 없는 값이면 사전 필터링되어 정상 통과."""
     judgment = _judgment(
         section_insights=[
             {"section_id": "99_unknown", "bullets": ["x"]},
@@ -167,10 +167,10 @@ async def test_service_invalid_section_id_marks_failed() -> None:
     blob, tables, anthropic = _make_deps(judgment=judgment)
 
     request = AnalyzeRequest(job_id="job-3")
-    with pytest.raises(ValidationError):
-        await analyze_financials_service(request, blob, tables, anthropic)
+    response = await analyze_financials_service(request, blob, tables, anthropic)
 
-    tables.agent_status.update_failed.assert_awaited_once()
+    # invalid section_id 는 _filter_section_insights 에서 제거되어 빈 insights 로 통과
+    assert response.section_insights_count == 0
 
 
 async def test_service_propagates_extracted_counts_to_input_summary() -> None:

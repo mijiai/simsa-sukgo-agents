@@ -122,7 +122,6 @@ def build_narrative_user_prompt(
     analysis: dict[str, Any],
     plan: ReportPlan,
     samples: list[str] | None = None,
-    custom_prompt: str = "",
 ) -> str:
     template_summary = _summarize_template_for_writer(template)
     docs_summary = _summarize_extracted_docs_for_writer(raw.get("extracted_docs") or [])
@@ -136,14 +135,7 @@ def build_narrative_user_prompt(
     if sample_blocks:
         sample_section = "\n[문체 학습용 sample 보고서]\n" + "\n---\n".join(sample_blocks) + "\n"
 
-    custom_prompt_section = ""
-    if custom_prompt and custom_prompt.strip():
-        custom_prompt_section = f"""[사용자 지침 — 보고서 본문 작성 시 최우선 반영]
-{custom_prompt.strip()}
-
-"""
-
-    return f"""{custom_prompt_section}[작성할 섹션 목록 (section_id, 표/이미지 제목)]
+    return f"""[작성할 섹션 목록 (section_id, 표/이미지 제목)]
 {json.dumps(template_summary, ensure_ascii=False, indent=2)}
 
 [원자료 텍스트 — 작성의 1차 근거]
@@ -180,10 +172,9 @@ async def run_narrative_writer(
     plan: ReportPlan,
     anthropic: AnthropicClient,
     samples: list[str] | None = None,
-    custom_prompt: str = "",
 ) -> NarrativeMap:
     """LLM 1회 호출 → NarrativeMap. LLM/검증 실패 시 빈 narratives fallback."""
-    user_prompt = build_narrative_user_prompt(template, raw, analysis, plan, samples, custom_prompt)
+    user_prompt = build_narrative_user_prompt(template, raw, analysis, plan, samples)
     try:
         nmap_dict = await anthropic.complete_json(system=NARRATIVE_SYSTEM_PROMPT, user=user_prompt)
     except Exception as exc:
