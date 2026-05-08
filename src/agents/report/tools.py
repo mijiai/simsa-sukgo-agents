@@ -1,6 +1,9 @@
 from fastmcp import FastMCP
 
-from src.agents.report.factory import get_report_anthropic_client
+from src.agents.report.factory import (
+    get_narrative_anthropic_client,
+    get_report_anthropic_client,
+)
 from src.agents.report.schemas import ReportRequest
 from src.agents.report.service import report_generate_service
 from src.config.settings import get_settings
@@ -51,5 +54,6 @@ def register_report_tools(mcp: FastMCP) -> None:
             sas_expiry_hours=settings.report_sas_expiry_hours,
             base_docx_blob_path=settings.report_base_docx_blob_path,
             appendix_row_threshold=settings.appendix_row_threshold,
+            narrative_anthropic=get_narrative_anthropic_client(),
         )
         return response.model_dump()

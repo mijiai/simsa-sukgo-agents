@@ -48,7 +48,10 @@ from src.agents.monitoring.service import (
     monitor_list_service,
     monitor_register_service,
 )
-from src.agents.report.factory import get_report_anthropic_client
+from src.agents.report.factory import (
+    get_narrative_anthropic_client,
+    get_report_anthropic_client,
+)
 from src.agents.report.schemas import ReportRequest
 from src.agents.report.service import report_generate_service
 from src.common.exceptions import EntityNotFoundError, SimsaSukgoError
@@ -203,6 +206,7 @@ def register_rest_routes(mcp: FastMCP) -> None:
             sas_expiry_hours=settings.report_sas_expiry_hours,
             base_docx_blob_path=settings.report_base_docx_blob_path,
             appendix_row_threshold=settings.appendix_row_threshold,
+            narrative_anthropic=get_narrative_anthropic_client(),
         )
         return JSONResponse(response.model_dump(mode="json"))
 
