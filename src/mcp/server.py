@@ -26,7 +26,9 @@ from src.agents.monitoring.scheduler import (
 )
 from src.agents.monitoring.tools import register_monitoring_tools
 from src.agents.report.factory import (
+    close_narrative_anthropic_client,
     close_report_anthropic_client,
+    get_narrative_anthropic_client,
     get_report_anthropic_client,
 )
 from src.agents.report.templates import load_report_samples
@@ -98,10 +100,12 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
     if settings.anthropic_api_key:
         get_anthropic_client()
         get_report_anthropic_client()
+        get_narrative_anthropic_client()
         logger.info(
             "anthropic.client.initialized",
             analyzer_model=settings.anthropic_model,
             report_model=settings.report_model,
+            narrative_model=settings.narrative_model,
         )
         if settings.azure_storage_connection_string:
             try:
@@ -171,6 +175,7 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
         await close_collector_clients()
         await close_anthropic_client()
         await close_report_anthropic_client()
+        await close_narrative_anthropic_client()
         await close_storage()
         logger.info("mcp_server.shutdown")
 
