@@ -439,7 +439,9 @@ async def report_generate_service(
     template_name: str = DEFAULT_TEMPLATE_NAME,
     base_docx_blob_path: str = "",
     appendix_row_threshold: int = 0,
+    narrative_anthropic: AnthropicClient | None = None,
 ) -> ReportResponse:
+    narrative_client = narrative_anthropic or anthropic
     await tables.jobs.update_status(
         request.job_id,
         JobStatus.REPORTING,
@@ -449,7 +451,8 @@ async def report_generate_service(
     logger.info(
         "report.start",
         job_id=request.job_id,
-        model=anthropic.model,
+        planner_model=anthropic.model,
+        narrative_model=narrative_client.model,
         template=template_name,
     )
 
@@ -496,9 +499,9 @@ async def report_generate_service(
             raw.get("dart_company_info") or {},
         )
 
-        # 5. Narrative Writer LLM (1회 호출)
+        # 5. Narrative Writer LLM (1회 호출) — Planner 와 분리된 모델 사용 가능
         narratives = await run_narrative_writer(
-            template, raw, analysis, plan, anthropic, samples=get_cached_templates()
+            template, raw, analysis, plan, narrative_client, samples=get_cached_templates()
         )
         non_empty_narratives = sum(1 for v in narratives.narratives.values() if v.strip())
         logger.info(
